@@ -1,0 +1,7 @@
+# === Training artifacts ===
+src/model/checkpoints/
+src/model/wandb/
+datasets/
+
+# === Python caches ===
+**/__pycache__/

@@ -1,0 +1,246 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
+
+class TransformerEncoderBlock(nn.Module):
+    """Transformer Encoder Block"""
+    def __init__(self, d_model, nhead, dim_feedforward, num_layers, dropout=0.1):
+        super(TransformerEncoderBlock, self).__init__()
+        
+        # Transformer encoder layers
+        encoder_layer = TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=num_layers)
+        
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_len, d_model)
+        Returns:
+            Output tensor of shape (batch_size, seq_len, d_model)
+        """
+        return self.transformer_encoder(x)
+
+
+class TCNBlock(nn.Module):
+    """Temporal Convolutional Network Block"""
+    def __init__(self, input_dim, output_dim, kernel_size=3, num_layers=3, dropout=0.1):
+        super(TCNBlock, self).__init__()
+        
+        layers = []
+        for i in range(num_layers):
+            dilation = 2 ** i  # Exponential dilation
+            in_channels = input_dim if i == 0 else output_dim
+            
+            layers.extend([
+                nn.Conv1d(
+                    in_channels, 
+                    output_dim, 
+                    kernel_size, 
+                    padding=(kernel_size-1)*dilation, 
+                    dilation=dilation
+                ),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            ])
+        
+        self.tcn_layers = nn.ModuleList(layers)
+        self.num_layers = num_layers
+        self.kernel_size = kernel_size
+        
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_len, input_dim)
+        Returns:
+            Output tensor of shape (batch_size, seq_len, output_dim)
+        """
+        # Transpose for Conv1d: (batch_size, input_dim, seq_len)
+        x = x.transpose(1, 2)
+        
+        # Apply TCN layers
+        for i in range(0, len(self.tcn_layers), 3):  # Every 3 layers (Conv1d, ReLU, Dropout)
+            conv = self.tcn_layers[i]
+            relu = self.tcn_layers[i + 1]
+            dropout = self.tcn_layers[i + 2]
+            
+            # Calculate padding to crop
+            dilation = 2 ** (i // 3)
+            padding = (self.kernel_size - 1) * dilation
+            
+            x = conv(x)
+            # Crop to maintain sequence length
+            if padding > 0:
+                x = x[:, :, :-padding]
+            x = relu(x)
+            x = dropout(x)
+        
+        # Transpose back: (batch_size, seq_len, output_dim)
+        return x.transpose(1, 2)
+
+
+class Encoder(nn.Module):
+    """Encoder with Transformer and TCN blocks"""
+    def __init__(self, 
+                 input_dim, 
+                 d_model, 
+                 nhead=8, 
+                 dim_feedforward=512, 
+                 transformer_layers=6,
+                 tcn_output_dim=None,
+                 tcn_kernel_size=3,
+                 tcn_num_layers=3,
+                 dropout=0.1,
+                 combination_method='concat'):
+        """
+        Args:
+            input_dim: Input dimension
+            d_model: Model dimension for transformer
+            nhead: Number of attention heads
+            dim_feedforward: Feedforward dimension
+            transformer_layers: Number of transformer encoder layers
+            tcn_output_dim: Output dimension for TCN (default: same as d_model)
+            tcn_kernel_size: Kernel size for TCN
+            tcn_num_layers: Number of TCN layers
+            dropout: Dropout rate
+            combination_method: 'concat' or 'stack' for combining outputs
+        """
+        super(Encoder, self).__init__()
+        
+        # Input projection to d_model
+        self.input_projection = nn.Linear(input_dim, d_model)
+        
+        # Transformer Encoder Block
+        self.transformer_block = TransformerEncoderBlock(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            num_layers=transformer_layers,
+            dropout=dropout
+        )
+        
+        # TCN Block
+        if tcn_output_dim is None:
+            tcn_output_dim = d_model
+            
+        self.tcn_block = TCNBlock(
+            input_dim=input_dim,  # TCN takes original input
+            output_dim=tcn_output_dim,
+            kernel_size=tcn_kernel_size,
+            num_layers=tcn_num_layers,
+            dropout=dropout
+        )
+        
+        # Combination method
+        self.combination_method = combination_method
+        
+        # Output projection if needed
+        if combination_method == 'concat':
+            self.output_projection = nn.Linear(d_model + tcn_output_dim, d_model)
+        elif combination_method == 'stack':
+            # For stack, we need to handle the extra dimension
+            pass  # No projection needed for stack
+        else:
+            raise ValueError("combination_method must be 'concat' or 'stack'")
+    
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_len, input_dim)
+        Returns:
+            Combined output tensor
+        """
+        # Project input to d_model for transformer
+        x_projected = self.input_projection(x)
+        
+        # Transformer Encoder
+        transformer_output = self.transformer_block(x_projected)  # (batch_size, seq_len, d_model)
+        
+        # TCN (uses original input)
+        tcn_output = self.tcn_block(x)  # (batch_size, seq_len, tcn_output_dim)
+        
+        # Combine outputs
+        if self.combination_method == 'concat':
+            # Concatenate along feature dimension
+            combined = torch.cat([transformer_output, tcn_output], dim=-1)
+            # Project back to d_model
+            output = self.output_projection(combined)
+            return output
+            
+        elif self.combination_method == 'stack':
+            # Stack along new dimension: (batch_size, seq_len, 2, d_model)
+            # First pad tcn_output to match d_model if needed
+            if tcn_output.size(-1) != transformer_output.size(-1):
+                pad_size = transformer_output.size(-1) - tcn_output.size(-1)
+                tcn_output = F.pad(tcn_output, (0, pad_size))
+            
+            output = torch.stack([transformer_output, tcn_output], dim=-2)
+            return output
+    
+    def get_individual_outputs(self, x):
+        """
+        Get outputs from individual blocks for analysis
+        
+        Args:
+            x: Input tensor of shape (batch_size, seq_len, input_dim)
+        Returns:
+            Dictionary with transformer and TCN outputs
+        """
+        with torch.no_grad():
+            x_projected = self.input_projection(x)
+            transformer_output = self.transformer_block(x_projected)
+            tcn_output = self.tcn_block(x)
+            
+            return {
+                'transformer': transformer_output,
+                'tcn': tcn_output
+            }
+
+
+# Example usage and testing
+if __name__ == "__main__":
+    # Test parameters
+    batch_size = 32
+    seq_len = 100
+    input_dim = 128
+    d_model = 256
+    
+    print("Testing Encoder with concat method:")
+    encoder_concat = Encoder(
+        input_dim=input_dim,
+        d_model=d_model,
+        nhead=8,
+        transformer_layers=6,
+        tcn_output_dim=128,
+        combination_method='concat'
+    )
+    
+    x = torch.randn(batch_size, seq_len, input_dim)
+    output_concat = encoder_concat(x)
+    print(f"Input shape: {x.shape}")
+    print(f"Output shape (concat): {output_concat.shape}")
+    
+    print("\nTesting Encoder with stack method:")
+    encoder_stack = Encoder(
+        input_dim=input_dim,
+        d_model=d_model,
+        nhead=8,
+        transformer_layers=6,
+        tcn_output_dim=d_model,  # Same as d_model for stack
+        combination_method='stack'
+    )
+    
+    output_stack = encoder_stack(x)
+    print(f"Output shape (stack): {output_stack.shape}")
+    
+    print("\nIndividual outputs:")
+    individual_outputs = encoder_concat.get_individual_outputs(x)
+    for name, output_tensor in individual_outputs.items():
+        print(f"{name}: {output_tensor.shape}")
