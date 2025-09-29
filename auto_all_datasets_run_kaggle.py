@@ -13,7 +13,7 @@ from pathlib import Path
 
 # Base paths
 BASE = r"/kaggle/working/ICIIT2025"
-DATASETS_DIR = os.path.join("kaggle", "input", "nguhcv", "datasets")
+DATASETS_DIR = os.path.join("/kaggle", "input", "nguhcv", "datasets")
 OUTPUT_BASE = os.path.join(BASE, "src", "inference", "inference_results")
 
 # Dataset configurations
