@@ -70,7 +70,7 @@ def parse_args():
                        help='Augmentation dropout (override; default: model dropout)')
     parser.add_argument('--aug_temperature', type=float, default=None,
                        help='Augmentation temperature (override; default: model temperature)')
-    parser.add_argument('--use_contrastive', action='store_true', default=True,
+    parser.add_argument('--use_contrastive', action='store_true', default=False,
                        help='Use contrastive learning branch')
     parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
                        help='Disable contrastive learning branch')
