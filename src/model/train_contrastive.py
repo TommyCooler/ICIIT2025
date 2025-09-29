@@ -192,7 +192,7 @@ class ContrastiveTrainer:
         pbar = tqdm(
             self.train_dataloader,
             desc="Training",
-            position=1,
+            position=0,
             leave=False,
             dynamic_ncols=True
         )
@@ -344,13 +344,11 @@ class ContrastiveTrainer:
         
         # Removed validation - only training
         
-        # Epoch loop with tqdm progress bar
+        # Simple epoch loop without an outer tqdm to avoid duplicate bars
         epoch_indices = range(start_epoch, start_epoch + num_epochs)
-        with tqdm(total=num_epochs, desc="Epochs", position=0, leave=True, dynamic_ncols=True) as epoch_bar:
-            for e_idx, epoch in enumerate(epoch_indices, start=1):
-                epoch_bar.set_postfix({ 'epoch': f"{e_idx}/{num_epochs}" })
-                print(f"\nEpoch {epoch + 1}")
-                print("-" * 50)
+        for epoch in epoch_indices:
+            print(f"\nEpoch {epoch + 1}")
+            print("-" * 50)
             
             # Training
             train_losses = self.train_epoch()
@@ -368,16 +366,8 @@ class ContrastiveTrainer:
             # Print learning rate
             current_lr = self.get_current_lr()
             print(f"Learning Rate: {current_lr:.6f}")
-            # Reflect key metrics on the epoch bar
-            epoch_bar.set_postfix({
-                'epoch': f"{e_idx}/{num_epochs}",
-                'loss': f"{train_losses['total_loss']:.4f}",
-                'ctr': f"{train_losses['contrastive_loss']:.4f}",
-                'rec': f"{train_losses['reconstruction_loss']:.4f}"
-            })
             
-            # Update epoch progress bar
-            epoch_bar.update(1)
+            # No outer tqdm; keep logs concise
             
             # Log epoch summary to wandb
             if self.use_wandb:
