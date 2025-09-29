@@ -33,8 +33,8 @@ def parse_args():
                        help='Specific dataset name (for ecg, nab, smap_msl, smd)')
     
     # Model arguments
-    parser.add_argument('--input_dim', type=int, default=2,
-                       help='Input dimension (number of features)')
+    parser.add_argument('--input_dim', type=int, default=None,
+                       help='Input dimension (number of features). If not set, auto-detected')
     parser.add_argument('--d_model', type=int, default=256,
                        help='Model dimension for transformer')
     parser.add_argument('--projection_dim', type=int, default=128,
@@ -206,11 +206,12 @@ def get_input_dim(dataset: str, data_path: str = None) -> int:
     
     # Fallback to default dimensions
     dims = {
-        'ecg': 2,  # 2 features from ECG data
+        'ecg': 2,   # ECG standardized to 2 features
         'psm': 25,
         'nab': 1,
         'smap_msl': 25,
-        'smd': 38
+        'smd': 38,
+        'ucr': 1    # UCR labeled arrays are (time,) so feature dim is 1
     }
     return dims.get(dataset, 2)
 
