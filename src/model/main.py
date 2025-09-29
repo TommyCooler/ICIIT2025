@@ -35,11 +35,11 @@ def parse_args():
     # Model arguments
     parser.add_argument('--input_dim', type=int, default=None,
                        help='Input dimension (number of features). If not set, auto-detected')
-    parser.add_argument('--d_model', type=int, default=256,
+    parser.add_argument('--d_model', type=int, default=128,
                        help='Model dimension for transformer')
-    parser.add_argument('--projection_dim', type=int, default=96,
+    parser.add_argument('--projection_dim', type=int, default=128,
                        help='Dimension for contrastive learning projection')
-    parser.add_argument('--nhead', type=int, default=8,
+    parser.add_argument('--nhead', type=int, default=4,
                        help='Number of attention heads')
     parser.add_argument('--transformer_layers', type=int, default=3,
                        help='Number of transformer encoder layers')

@@ -229,9 +229,6 @@ def process_dataset(dataset_type, config):
             f"--dataset {dataset_type} "
             f"--data_path {config['data_path']} "
             f"--dataset_name {file_info['name']} "
-            f"--num_epochs 50 "
-            f"--batch_size 32 "
-            f"--window_size 128"
         )
         
         if not run_command(train_cmd, f"Training {file_info['name']}"):
