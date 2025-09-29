@@ -1561,19 +1561,49 @@ def main():
     if args.model_path is None:
         # Get the directory of the current script
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        args.model_path = os.path.join('/kaggle', 'working', 'ICIIT2025', 'checkpoints', args.dataset, 'best_model.pth')
-        print(f"Using default model path: {args.model_path}")
+        
+        # Find latest timestamped checkpoint for this dataset
+        checkpoints_base = os.path.join('/kaggle', 'working', 'ICIIT2025', 'checkpoints')
+        latest_timestamp = None
+        
+        if os.path.exists(checkpoints_base):
+            try:
+                # Get all directories that start with dataset name
+                import re
+                pattern = f"^{args.dataset}_\\d{{8}}_\\d{{6}}$"
+                matching_dirs = []
+                
+                for item in os.listdir(checkpoints_base):
+                    if os.path.isdir(os.path.join(checkpoints_base, item)) and re.match(pattern, item):
+                        matching_dirs.append(item)
+                
+                if matching_dirs:
+                    # Sort by timestamp (newest first)
+                    matching_dirs.sort(reverse=True)
+                    latest_timestamp = matching_dirs[0]
+                    print(f"Found latest checkpoint: {latest_timestamp}")
+                else:
+                    print(f"No timestamped checkpoints found for dataset: {args.dataset}")
+            except Exception as e:
+                print(f"Error scanning checkpoints: {e}")
+        
+        if latest_timestamp:
+            args.model_path = os.path.join(checkpoints_base, latest_timestamp, 'best_model.pth')
+        else:
+            # Fallback to old format
+            args.model_path = os.path.join(checkpoints_base, args.dataset, 'best_model.pth')
+        
+        print(f"Using model path: {args.model_path}")
         
         # Check if model file exists
         if not os.path.exists(args.model_path):
             print(f"ERROR: Model file not found at {args.model_path}")
-            print(f"Available checkpoints in {os.path.join(current_dir, 'model', 'checkpoints')}:")
-            checkpoints_dir = os.path.join(current_dir, 'model', 'checkpoints')
-            if os.path.exists(checkpoints_dir):
-                for item in os.listdir(checkpoints_dir):
+            print(f"Available checkpoints in {checkpoints_base}:")
+            if os.path.exists(checkpoints_base):
+                for item in os.listdir(checkpoints_base):
                     print(f"  - {item}")
             else:
-                print(f"  Checkpoints directory does not exist: {checkpoints_dir}")
+                print(f"  Checkpoints directory does not exist: {checkpoints_base}")
             return
     
     # Set default output directory if not provided
