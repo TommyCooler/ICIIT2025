@@ -73,7 +73,7 @@ class ContrastiveTrainer:
         self.optimizer = optim.AdamW(
             self.model.parameters(),
             lr=learning_rate,
-            weight_decay=0
+            weight_decay=weight_decay
         )
         
         # Learning rate scheduler setup
@@ -192,7 +192,7 @@ class ContrastiveTrainer:
         pbar = tqdm(
             self.train_dataloader,
             desc="Training",
-            position=0,
+            position=1,
             leave=False,
             dynamic_ncols=True
         )
@@ -344,11 +344,12 @@ class ContrastiveTrainer:
         
         # Removed validation - only training
         
-        # Simple epoch loop without an outer tqdm to avoid duplicate bars
+        # Epoch loop with tqdm progress bar
         epoch_indices = range(start_epoch, start_epoch + num_epochs)
-        for epoch in epoch_indices:
-            print(f"\nEpoch {epoch + 1}")
-            print("-" * 50)
+        with tqdm(total=num_epochs, desc="Epochs", position=0, leave=True, dynamic_ncols=True) as epoch_bar:
+            for epoch in epoch_indices:
+                print(f"\nEpoch {epoch + 1}")
+                print("-" * 50)
             
             # Training
             train_losses = self.train_epoch()
@@ -367,7 +368,8 @@ class ContrastiveTrainer:
             current_lr = self.get_current_lr()
             print(f"Learning Rate: {current_lr:.6f}")
             
-            # No outer tqdm; keep logs concise
+            # Update epoch progress bar
+            epoch_bar.update(1)
             
             # Log epoch summary to wandb
             if self.use_wandb:

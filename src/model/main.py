@@ -35,19 +35,19 @@ def parse_args():
     # Model arguments
     parser.add_argument('--input_dim', type=int, default=None,
                        help='Input dimension (number of features). If not set, auto-detected')
-    parser.add_argument('--d_model', type=int, default=256,
+    parser.add_argument('--d_model', type=int, default=128,
                        help='Model dimension for transformer')
     parser.add_argument('--projection_dim', type=int, default=128,
                        help='Dimension for contrastive learning projection')
-    parser.add_argument('--nhead', type=int, default=8,
+    parser.add_argument('--nhead', type=int, default=4,
                        help='Number of attention heads')
-    parser.add_argument('--transformer_layers', type=int, default=6,
+    parser.add_argument('--transformer_layers', type=int, default=3,
                        help='Number of transformer encoder layers')
     parser.add_argument('--tcn_output_dim', type=int, default=None,
                        help='Output dimension for TCN')
     parser.add_argument('--tcn_kernel_size', type=int, default=3,
                        help='Kernel size for TCN')
-    parser.add_argument('--tcn_num_layers', type=int, default=4,
+    parser.add_argument('--tcn_num_layers', type=int, default=3,
                        help='Number of TCN layers')
     parser.add_argument('--dropout', type=float, default=0.1,
                        help='Dropout rate')
@@ -58,7 +58,7 @@ def parse_args():
                        help='Method for combining TCN and Transformer outputs')
 
     # Augmentation-specific overrides (distinct names to avoid confusion with encoder)
-    parser.add_argument('--aug_nhead', type=int, default=4,
+    parser.add_argument('--aug_nhead', type=int, default=2,
                        help='Augmentation transformer nhead (override; default: model nhead)')
     parser.add_argument('--aug_num_layers', type=int, default=1,
                        help='Augmentation transformer number of layers')
