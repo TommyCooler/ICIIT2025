@@ -1528,7 +1528,7 @@ def main():
                        help='Type of dataset')
     parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets/ecg',
                        help='Path to test data')
-    parser.add_argument('--model_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/src/model/checkpoints/ecg_20250929_015638/best_model.pth',
+    parser.add_argument('--model_path', type=str, default=None,
                        help='Path to model checkpoint (if None, will use checkpoints/{dataset}/best_model.pth)')
     # Inference arguments
     parser.add_argument('--window_size', type=int, default=128,
@@ -1561,7 +1561,7 @@ def main():
     if args.model_path is None:
         # Get the directory of the current script
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        args.model_path = os.path.join(current_dir, 'model', 'checkpoints', args.dataset, 'best_model.pth')
+        args.model_path = os.path.join(current_dir, 'checkpoints', args.dataset, 'best_model.pth')
         print(f"Using default model path: {args.model_path}")
         
         # Check if model file exists
