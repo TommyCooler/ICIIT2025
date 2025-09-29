@@ -80,7 +80,7 @@ def parse_args():
                        help='Size of windows')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='Batch size')
-    parser.add_argument('--num_epochs', type=int, default=100,
+    parser.add_argument('--num_epochs', type=int, default=50,
                        help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                        help='Learning rate')
