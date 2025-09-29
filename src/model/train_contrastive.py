@@ -102,6 +102,9 @@ class ContrastiveTrainer:
             if experiment_name is None:
                 experiment_name = f"contrastive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
+            # Set wandb API key
+            os.environ["WANDB_API_KEY"] = "6170f251a03ea565bfa34cb8658f5a5e12a93ddd"
+            
             wandb.init(
                 project=project_name,
                 name=experiment_name,
