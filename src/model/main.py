@@ -4,6 +4,7 @@ Main script for contrastive learning model training
 """
 
 import argparse
+import json
 from typing import List, Optional
 import torch
 import numpy as np
@@ -70,7 +71,7 @@ def parse_args():
                        help='Augmentation dropout (override; default: model dropout)')
     parser.add_argument('--aug_temperature', type=float, default=None,
                        help='Augmentation temperature (override; default: model temperature)')
-    parser.add_argument('--use_contrastive', action='store_true', default=True,
+    parser.add_argument('--use_contrastive', action='store_true', default=False,
                        help='Use contrastive learning branch')
     parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
                        help='Disable contrastive learning branch')
@@ -80,7 +81,7 @@ def parse_args():
                        help='Size of windows')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='Batch size')
-    parser.add_argument('--num_epochs', type=int, default=100,
+    parser.add_argument('--num_epochs', type=int, default=50,
                        help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                        help='Learning rate')
@@ -111,6 +112,15 @@ def parse_args():
                         help='Wandb experiment name')
 # Augmentation is handled by the model, not in dataloader
     
+    # LR scheduler arguments
+    parser.add_argument('--use_lr_scheduler', action='store_true', default=True,
+                       help='Use learning rate scheduler')
+    parser.add_argument('--scheduler_type', type=str, default='cosine',
+                       choices=['cosine', 'step', 'exponential', 'plateau'],
+                       help='Learning rate scheduler type')
+    parser.add_argument('--scheduler_params', type=str, default='{}',
+                       help='JSON string of scheduler params, e.g. {"T_max": 100, "eta_min": 1e-6}')
+
     # System arguments
     parser.add_argument('--device', type=str, default='cuda',
                        choices=['auto', 'cuda', 'cpu'],
@@ -337,7 +347,10 @@ def main():
             use_wandb=args.use_wandb,
             project_name=args.project_name,
             experiment_name=args.experiment_name,
-            window_size=args.window_size
+            window_size=args.window_size,
+            use_lr_scheduler=args.use_lr_scheduler,
+            scheduler_type=args.scheduler_type,
+            scheduler_params=(json.loads(args.scheduler_params) if isinstance(args.scheduler_params, str) and args.scheduler_params else {})
         )
         
         # Resume from checkpoint if specified

@@ -1561,7 +1561,7 @@ def main():
     if args.model_path is None:
         # Get the directory of the current script
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        args.model_path = os.path.join(current_dir, 'checkpoints', args.dataset, 'best_model.pth')
+        args.model_path = os.path.join('/kaggle', 'working', 'ICIIT2025', 'checkpoints', args.dataset, 'best_model.pth')
         print(f"Using default model path: {args.model_path}")
         
         # Check if model file exists
