@@ -35,19 +35,19 @@ def parse_args():
     # Model arguments
     parser.add_argument('--input_dim', type=int, default=None,
                        help='Input dimension (number of features). If not set, auto-detected')
-    parser.add_argument('--d_model', type=int, default=128,
+    parser.add_argument('--d_model', type=int, default=256,
                        help='Model dimension for transformer')
     parser.add_argument('--projection_dim', type=int, default=128,
                        help='Dimension for contrastive learning projection')
-    parser.add_argument('--nhead', type=int, default=4,
+    parser.add_argument('--nhead', type=int, default=8,
                        help='Number of attention heads')
-    parser.add_argument('--transformer_layers', type=int, default=3,
+    parser.add_argument('--transformer_layers', type=int, default=6,
                        help='Number of transformer encoder layers')
     parser.add_argument('--tcn_output_dim', type=int, default=None,
                        help='Output dimension for TCN')
     parser.add_argument('--tcn_kernel_size', type=int, default=3,
                        help='Kernel size for TCN')
-    parser.add_argument('--tcn_num_layers', type=int, default=3,
+    parser.add_argument('--tcn_num_layers', type=int, default=4,
                        help='Number of TCN layers')
     parser.add_argument('--dropout', type=float, default=0.1,
                        help='Dropout rate')
@@ -70,7 +70,7 @@ def parse_args():
                        help='Augmentation dropout (override; default: model dropout)')
     parser.add_argument('--aug_temperature', type=float, default=None,
                        help='Augmentation temperature (override; default: model temperature)')
-    parser.add_argument('--use_contrastive', action='store_true', default=False,
+    parser.add_argument('--use_contrastive', action='store_true', default=True,
                        help='Use contrastive learning branch')
     parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
                        help='Disable contrastive learning branch')
@@ -80,7 +80,7 @@ def parse_args():
                        help='Size of windows')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='Batch size')
-    parser.add_argument('--num_epochs', type=int, default=100,
+    parser.add_argument('--num_epochs', type=int, default=50,
                        help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                        help='Learning rate')
