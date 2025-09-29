@@ -347,7 +347,8 @@ class ContrastiveTrainer:
         # Epoch loop with tqdm progress bar
         epoch_indices = range(start_epoch, start_epoch + num_epochs)
         with tqdm(total=num_epochs, desc="Epochs", position=0, leave=True, dynamic_ncols=True) as epoch_bar:
-            for epoch in epoch_indices:
+            for e_idx, epoch in enumerate(epoch_indices, start=1):
+                epoch_bar.set_postfix({ 'epoch': f"{e_idx}/{num_epochs}" })
                 print(f"\nEpoch {epoch + 1}")
                 print("-" * 50)
             
@@ -367,6 +368,13 @@ class ContrastiveTrainer:
             # Print learning rate
             current_lr = self.get_current_lr()
             print(f"Learning Rate: {current_lr:.6f}")
+            # Reflect key metrics on the epoch bar
+            epoch_bar.set_postfix({
+                'epoch': f"{e_idx}/{num_epochs}",
+                'loss': f"{train_losses['total_loss']:.4f}",
+                'ctr': f"{train_losses['contrastive_loss']:.4f}",
+                'rec': f"{train_losses['reconstruction_loss']:.4f}"
+            })
             
             # Update epoch progress bar
             epoch_bar.update(1)
