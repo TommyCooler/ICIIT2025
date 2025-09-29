@@ -41,9 +41,7 @@ DATASET_CONFIGS = {
     },
     'smap_msl': {
         'data_path': os.path.join(DATASETS_DIR, "smap_msl_"),
-        'train_dir': os.path.join(DATASETS_DIR, "smap_msl_", "train"),
-        'test_dir': os.path.join(DATASETS_DIR, "smap_msl_", "test"),
-        'file_pattern': "*.npy",
+        'processed_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
         'output_dir': os.path.join(OUTPUT_BASE, "smap_msl")
     },
     'smd': {
@@ -126,12 +124,13 @@ def get_dataset_files(dataset_type, config):
             })
     
     elif dataset_type == 'nab':
-        # NAB: Get all *_train.npy files
+        # NAB: Require train/test/labels triplets
         train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
         for train_file in train_files:
             file_name = os.path.basename(train_file).replace('_train.npy', '')
             test_file = os.path.join(config['test_dir'], f"{file_name}_test.npy")
-            if os.path.exists(test_file):
+            labels_file = os.path.join(config['test_dir'], f"{file_name}_labels.npy")
+            if os.path.exists(test_file) and os.path.exists(labels_file):
                 files.append({
                     'name': file_name,
                     'train_path': train_file,
@@ -139,36 +138,43 @@ def get_dataset_files(dataset_type, config):
                 })
     
     elif dataset_type == 'smap_msl':
-        # SMAP-MSL: Get all .npy files from train directory
-        train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
+        # SMAP-MSL processed mode: iterate all *_train.npy triplets in processed dir
+        proc_dir = config.get('processed_dir', '')
+        train_files = sorted(glob.glob(os.path.join(proc_dir, "*_train.npy")))
         for train_file in train_files:
-            file_name = os.path.basename(train_file)
-            test_file = os.path.join(config['test_dir'], file_name)
-            if os.path.exists(test_file):
+            file_name = os.path.basename(train_file).replace('_train.npy', '')
+            test_file = os.path.join(proc_dir, f"{file_name}_test.npy")
+            labels_file = os.path.join(proc_dir, f"{file_name}_labels.npy")
+            if os.path.exists(test_file) and os.path.exists(labels_file):
                 files.append({
-                    'name': file_name.replace('.npy', ''),
+                    'name': file_name,
                     'train_path': train_file,
                     'test_path': test_file
                 })
     
     elif dataset_type == 'smd':
-        # SMD: Get all .npy files
-        all_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
-        for file_path in all_files:
-            file_name = os.path.basename(file_path)
-            files.append({
-                'name': file_name.replace('.npy', ''),
-                'train_path': file_path,
-                'test_path': file_path  # SMD uses same file for train/test
-            })
+        # SMD: Require train/test/labels triplets in a single directory
+        base_dir = config['train_dir']
+        train_files = sorted(glob.glob(os.path.join(base_dir, "*_train.npy")))
+        for train_file in train_files:
+            file_name = os.path.basename(train_file).replace('_train.npy', '')
+            test_file = os.path.join(base_dir, f"{file_name}_test.npy")
+            labels_file = os.path.join(base_dir, f"{file_name}_labels.npy")
+            if os.path.exists(test_file) and os.path.exists(labels_file):
+                files.append({
+                    'name': file_name,
+                    'train_path': train_file,
+                    'test_path': test_file
+                })
     
     elif dataset_type == 'ucr':
-        # UCR: Get all *_train.npy files
+        # UCR: Require train/test/labels triplets in labeled dir
         train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
         for train_file in train_files:
             file_name = os.path.basename(train_file).replace('_train.npy', '')
             test_file = os.path.join(config['test_dir'], f"{file_name}_test.npy")
-            if os.path.exists(test_file):
+            labels_file = os.path.join(config['test_dir'], f"{file_name}_labels.npy")
+            if os.path.exists(test_file) and os.path.exists(labels_file):
                 files.append({
                     'name': file_name,
                     'train_path': train_file,
@@ -237,9 +243,7 @@ def process_dataset(dataset_type, config):
             f"python {os.path.join(BASE, 'src', 'inference', 'inference.py')} "
             f"--dataset {dataset_type} "
             f"--data_path {config['data_path']} "
-            f"--dataset_name {file_info['name']} "
-            f"--save_plot False "
-            f"--save_excel True"
+            f"--save_excel"
         )
         
         if not run_command(infer_cmd, f"Inference {file_info['name']}"):

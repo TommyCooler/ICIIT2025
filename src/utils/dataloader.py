@@ -486,59 +486,70 @@ class SMAPMSLDatasetLoader:
         self.validation_ratio = validation_ratio
         
     def load_dataset(self, dataset_name: str) -> Dict[str, Union[np.ndarray, BaseDataset]]:
-        """Load a specific SMAP/MSL dataset"""
-        print(f"Loading SMAP/MSL dataset: {dataset_name}")
-        
-        # Load data
-        train_path = os.path.normpath(os.path.join(self.data_path, "train", f"{dataset_name}.npy"))
-        test_path = os.path.normpath(os.path.join(self.data_path, "test", f"{dataset_name}.npy"))
-        labels_path = os.path.normpath(os.path.join(self.data_path, "labeled_anomalies.csv"))
-        
+        """Load SMAP/MSL dataset from processed folder (expects *_train.npy, *_test.npy, *_labels.npy)."""
+        print(f"Loading SMAP/MSL dataset (processed): {dataset_name}")
+
+        # Enforce specific selection as requested
+        if dataset_name != 'C-2':
+            raise ValueError("Only 'C-2' is allowed for MSL in processed mode. Please set --dataset_name C-2")
+
+        proc_dir = os.path.normpath(os.path.join(self.data_path, "processed"))
+        train_path = os.path.join(proc_dir, f"{dataset_name}_train.npy")
+        test_path = os.path.join(proc_dir, f"{dataset_name}_test.npy")
+        labels_path = os.path.join(proc_dir, f"{dataset_name}_labels.npy")
+
         print(f"  Train path: {train_path}")
         print(f"  Test path: {test_path}")
         print(f"  Labels path: {labels_path}")
-        
+
         if not os.path.exists(train_path):
             raise FileNotFoundError(f"Train file not found: {train_path}")
         if not os.path.exists(test_path):
             raise FileNotFoundError(f"Test file not found: {test_path}")
         if not os.path.exists(labels_path):
             raise FileNotFoundError(f"Labels file not found: {labels_path}")
-        
+
+        # Load arrays
         train_data = np.load(train_path)
         test_data = np.load(test_path)
-        
-        # Load labels
-        labels_df = pd.read_csv(labels_path)
-        dataset_labels = labels_df[labels_df['chan_id'] == dataset_name]
-        
-        # Create binary labels
-        test_labels = np.zeros(test_data.shape[0])
-        for _, row in dataset_labels.iterrows():
-            start_idx = row['anomaly_sequences'].split(':')[0]
-            end_idx = row['anomaly_sequences'].split(':')[1]
-            test_labels[int(start_idx):int(end_idx)] = 1
-        
-        # Transpose data to (features, time)
-        train_data = train_data.T
-        test_data = test_data.T
-        
-        # Normalize if required
-        if self.normalize:
-            # Global normalization to [0, 1] using train data statistics
-            train_min = np.min(train_data)
-            train_max = np.max(train_data)
-            if train_max > train_min:
-                train_data = (train_data - train_min) / (train_max - train_min)
-                test_data = (test_data - train_min) / (train_max - train_min)
-        
-        # Split test into validation and test sets
+        test_labels = np.load(labels_path)
+
+        # Ensure shapes (features, time)
+        if train_data.ndim != 2 or test_data.ndim != 2:
+            raise ValueError(f"Unexpected shapes: train {train_data.shape}, test {test_data.shape}")
+
+        if train_data.shape[0] > train_data.shape[1]:
+            # (T, F) -> (F, T)
+            train_data = train_data.T
+        if test_data.shape[0] > test_data.shape[1]:
+            test_data = test_data.T
+
+        # Align labels to test time length
+        if test_labels.ndim != 1:
+            test_labels = test_labels.reshape(-1)
+        if len(test_labels) != test_data.shape[1]:
+            # Try to truncate or pad to match
+            min_len = min(len(test_labels), test_data.shape[1])
+            test_labels = test_labels[:min_len]
+            test_data = test_data[:, :min_len]
+
+        # Build validation split from test
         val_size = int(test_data.shape[1] * self.validation_ratio)
         val_data = test_data[:, :val_size]
         val_labels = test_labels[:val_size]
         test_data = test_data[:, val_size:]
         test_labels = test_labels[val_size:]
-        
+
+        # Normalize if required using train statistics
+        if self.normalize:
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                if val_data.size:
+                    val_data = (val_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
+
         return {
             'train_data': train_data,
             'val_data': val_data,
