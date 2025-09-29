@@ -1,7 +1,9 @@
 # === Training artifacts ===
 src/model/checkpoints/
 src/model/wandb/
+src/inference
 datasets/
 
 # === Python caches ===
 **/__pycache__/
+srcNotebook/

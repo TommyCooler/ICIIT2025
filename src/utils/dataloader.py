@@ -113,12 +113,11 @@ class BaseDataset(Dataset, ABC):
             self.data = DataPreprocessing.smooth(self.data)
         
     def _normalize_data(self):
-        """Normalize data to [0, 1] range"""
-        for i in range(self.data.shape[0]):
-            data_min = np.min(self.data[i])
-            data_max = np.max(self.data[i])
-            if data_max > data_min:
-                self.data[i] = (self.data[i] - data_min) / (data_max - data_min)
+        """Normalize data to [0, 1] range globally"""
+        data_min = np.min(self.data)
+        data_max = np.max(self.data)
+        if data_max > data_min:
+            self.data = (self.data - data_min) / (data_max - data_min)
     
 # Augmentation is now handled by the contrastive model, not in dataloader
     
@@ -185,18 +184,37 @@ class ECGDatasetLoader:
             train_data = train_data.T
             test_data = test_data.T
         
-        # For labels, we'll create dummy labels since ECG is unsupervised
-        test_labels = np.zeros(test_data.shape[1])  # Dummy labels
+        # Extract features and labels from ECG data
+        # ECG data format: [feature1, feature2, label] where label: 0=normal, 1=anomaly
+        if train_data.shape[0] >= 3:  # Has at least 3 rows (2 features + 1 label)
+            # Extract features (first 2 rows) and labels (third row)
+            train_features = train_data[:2, :]  # First 2 rows are features
+            train_labels = train_data[2, :]     # Third row is labels
+            test_features = test_data[:2, :]    # First 2 rows are features
+            test_labels = test_data[2, :]       # Third row is labels
+            
+            # Use only features for training (train set should be all normal)
+            train_data = train_features
+            test_data = test_features
+            
+            print(f"ECG dataset {dataset_name}:")
+            print(f"  Train: {train_data.shape[0]} features, {train_data.shape[1]} time steps")
+            print(f"  Train labels: {np.sum(train_labels == 0)} normal, {np.sum(train_labels == 1)} anomaly")
+            print(f"  Test: {test_data.shape[0]} features, {test_data.shape[1]} time steps")
+            print(f"  Test labels: {np.sum(test_labels == 0)} normal, {np.sum(test_labels == 1)} anomaly")
+        else:
+            # Fallback: create dummy labels if no labels available
+            test_labels = np.zeros(test_data.shape[1])  # Dummy labels
+            print(f"ECG dataset {dataset_name}: No labels found, using dummy labels")
         
         # Normalize if required
         if self.normalize:
-            # Normalize each channel separately
-            for i in range(train_data.shape[0]):
-                train_max = np.max(train_data[i])
-                train_min = np.min(train_data[i])
-                if train_max > train_min:
-                    train_data[i] = (train_data[i] - train_min) / (train_max - train_min)
-                    test_data[i] = (test_data[i] - train_min) / (train_max - train_min)
+            # Global normalization to [0, 1] using train data statistics
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
         
         # Split test into validation and test sets
         val_size = int(test_data.shape[1] * self.validation_ratio)
@@ -242,11 +260,11 @@ class ECGDatasetLoader:
                 try:
                     ds = self.load_dataset(dataset_name)
                     all_datasets.append(ds)
-                    print(f"  ✓ Successfully loaded {dataset_name}")
+                    print(f"  + Successfully loaded {dataset_name}")
                 except Exception as e:
-                    print(f"  ✗ Failed to load {dataset_name}: {e}")
+                    print(f"  - Failed to load {dataset_name}: {e}")
             else:
-                print(f"  ✗ Missing files for {dataset_name}")
+                print(f"  - Missing files for {dataset_name}")
         
         print(f"Total datasets loaded: {len(all_datasets)}")
         
@@ -315,12 +333,12 @@ class PSMDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            # Use training data statistics for normalization
-            train_mean = np.mean(train_data, axis=1, keepdims=True)
-            train_std = np.std(train_data, axis=1, keepdims=True)
-            
-            train_data = (train_data - train_mean) / (train_std + 1e-8)
-            test_data = (test_data - train_mean) / (train_std + 1e-8)
+            # Global normalization to [0, 1] using train data statistics
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
         
         # Split test into validation and test sets
         val_size = int(test_data.shape[1] * self.validation_ratio)
@@ -373,14 +391,15 @@ class NABDatasetLoader:
             test_data = test_data[:, val_size:]
             test_labels = test_labels[val_size:]
             
-            # Normalize if required
-            if self.normalize:
-                train_mean = np.mean(train_data, axis=1, keepdims=True)
-                train_std = np.std(train_data, axis=1, keepdims=True)
-                
-                train_data = (train_data - train_mean) / (train_std + 1e-8)
-                val_data = (val_data - train_mean) / (train_std + 1e-8)
-                test_data = (test_data - train_mean) / (train_std + 1e-8)
+        # Normalize if required
+        if self.normalize:
+            # Global normalization to [0, 1] using train data statistics
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                val_data = (val_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
             
             return {
                 'train_data': train_data,
@@ -435,11 +454,12 @@ class NABDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            train_mean = np.mean(train_data, axis=1, keepdims=True)
-            train_std = np.std(train_data, axis=1, keepdims=True)
-            
-            train_data = (train_data - train_mean) / (train_std + 1e-8)
-            test_data = (test_data - train_mean) / (train_std + 1e-8)
+            # Global normalization to [0, 1] using train data statistics
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
         
         # Split test into validation and test sets
         val_size = int(test_data.shape[1] * self.validation_ratio)
@@ -505,11 +525,12 @@ class SMAPMSLDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            train_mean = np.mean(train_data, axis=1, keepdims=True)
-            train_std = np.std(train_data, axis=1, keepdims=True)
-            
-            train_data = (train_data - train_mean) / (train_std + 1e-8)
-            test_data = (test_data - train_mean) / (train_std + 1e-8)
+            # Global normalization to [0, 1] using train data statistics
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
         
         # Split test into validation and test sets
         val_size = int(test_data.shape[1] * self.validation_ratio)
@@ -563,11 +584,12 @@ class SMDDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            train_mean = np.mean(train_data, axis=1, keepdims=True)
-            train_std = np.std(train_data, axis=1, keepdims=True)
-            
-            train_data = (train_data - train_mean) / (train_std + 1e-8)
-            test_data = (test_data - train_mean) / (train_std + 1e-8)
+            # Global normalization to [0, 1] using train data statistics
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
         
         # Split test into validation and test sets
         val_size = int(test_data.shape[1] * self.validation_ratio)

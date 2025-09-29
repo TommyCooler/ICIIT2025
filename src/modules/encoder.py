@@ -95,8 +95,8 @@ class Encoder(nn.Module):
                  dim_feedforward=512, 
                  transformer_layers=6,
                  tcn_output_dim=None,
-                 tcn_kernel_size=3,
-                 tcn_num_layers=3,
+                 tcn_kernel_size=2,
+                 tcn_num_layers=4,
                  dropout=0.1,
                  combination_method='concat'):
         """
@@ -145,8 +145,8 @@ class Encoder(nn.Module):
         if combination_method == 'concat':
             self.output_projection = nn.Linear(d_model + tcn_output_dim, d_model)
         elif combination_method == 'stack':
-            # For stack, we need to handle the extra dimension
-            pass  # No projection needed for stack
+            # For stack, we will concatenate then project back to d_model
+            self.stack_projection = nn.Linear(d_model + tcn_output_dim, d_model)
         else:
             raise ValueError("combination_method must be 'concat' or 'stack'")
     
@@ -175,13 +175,12 @@ class Encoder(nn.Module):
             return output
             
         elif self.combination_method == 'stack':
-            # Stack along new dimension: (batch_size, seq_len, 2, d_model)
-            # First pad tcn_output to match d_model if needed
+            # Concatenate features and project back to d_model to keep 3D output
             if tcn_output.size(-1) != transformer_output.size(-1):
                 pad_size = transformer_output.size(-1) - tcn_output.size(-1)
                 tcn_output = F.pad(tcn_output, (0, pad_size))
-            
-            output = torch.stack([transformer_output, tcn_output], dim=-2)
+            combined = torch.cat([transformer_output, tcn_output], dim=-1)
+            output = self.stack_projection(combined)
             return output
     
     def get_individual_outputs(self, x):

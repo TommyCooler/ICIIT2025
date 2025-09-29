@@ -47,7 +47,8 @@ class ContrastiveModel(nn.Module):
                  tcn_num_layers: int = 3,
                  dropout: float = 0.1,
                  temperature: float = 1,
-                 combination_method: str = 'concat'):
+                 combination_method: str = 'concat',
+                 use_contrastive: bool = True):
         """
         Args:
             input_dim: Input dimension (number of features)
@@ -61,6 +62,7 @@ class ContrastiveModel(nn.Module):
             dropout: Dropout rate
             temperature: Temperature for InfoNCE loss
             combination_method: 'concat' or 'stack' for encoder combination
+            use_contrastive: Whether to use contrastive learning branch
         """
         super(ContrastiveModel, self).__init__()
         
@@ -68,6 +70,7 @@ class ContrastiveModel(nn.Module):
         self.d_model = d_model
         self.projection_dim = projection_dim
         self.temperature = temperature
+        self.use_contrastive = use_contrastive
         
         # Encoder for both original and augmented data
         self.encoder = Encoder(
@@ -84,32 +87,29 @@ class ContrastiveModel(nn.Module):
         )
         
         # MLP for contrastive learning projection
-        self.projection_mlp = MLPProjection(
-            input_dim=d_model,
-            hidden_dim=d_model,
-            output_dim=projection_dim,
-            dropout=dropout
-        )
+        # Projection head for contrastive learning (only if using contrastive)
+        if self.use_contrastive:
+            self.projection_mlp = MLPProjection(
+                input_dim=d_model,
+                hidden_dim=d_model,
+                output_dim=projection_dim,
+                dropout=dropout
+            )
         
-        # Decoder for reconstruction
+        # MLP Decoder for reconstruction
         self.decoder = Decoder(
             d_model=d_model,
             output_dim=input_dim,
-            nhead=nhead,
-            dim_feedforward=d_model * 4,
-            transformer_layers=transformer_layers,
-            tcn_output_dim=tcn_output_dim,
-            tcn_kernel_size=tcn_kernel_size,
-            tcn_num_layers=tcn_num_layers,
-            dropout=dropout,
-            combination_method=combination_method
+            hidden_dims=[d_model, d_model // 2, d_model // 4],
+            dropout=dropout
         )
         
         # Augmentation module for data augmentation
         self.augmentation = Augmentation(
             input_dim=input_dim,
             output_dim=input_dim,
-            dropout=dropout
+            dropout=dropout,
+            temperature=temperature
         )
         
     def forward(self, original_data: torch.Tensor, augmented_data: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -136,11 +136,16 @@ class ContrastiveModel(nn.Module):
         augmented_encoded = self.encoder(augmented_data)  # (batch_size, seq_len, d_model)
         
         # Project for contrastive learning
-        original_projection = self.projection_mlp(original_encoded)  # (batch_size, seq_len, projection_dim)
-        augmented_projection = self.projection_mlp(augmented_encoded)  # (batch_size, seq_len, projection_dim)
+        # Get projections for contrastive learning (only if using contrastive)
+        if self.use_contrastive:
+            original_projection = self.projection_mlp(original_encoded)  # (batch_size, seq_len, projection_dim)
+            augmented_projection = self.projection_mlp(augmented_encoded)  # (batch_size, seq_len, projection_dim)
+        else:
+            original_projection = None
+            augmented_projection = None
         
-        # Reconstruct original data from augmented encoding
-        reconstructed = self.decoder(augmented_encoded, original_encoded)  # (batch_size, seq_len, input_dim)
+        # Reconstruct original data from augmented encoding (MLP decoder only needs augmented_encoded)
+        reconstructed = self.decoder(augmented_encoded)  # (batch_size, seq_len, input_dim)
         
         return {
             'original_encoded': original_encoded,
@@ -271,13 +276,16 @@ class ContrastiveModel(nn.Module):
         # Forward pass
         outputs = self.forward(original_data, augmented_data)
         
-        # Compute contrastive loss
-        contrastive_loss = self.compute_contrastive_loss(
-            outputs['original_projection'],
-            outputs['augmented_projection'],
-            labels,
-            epsilon
-        )
+        # Compute contrastive loss (only if using contrastive)
+        if self.use_contrastive:
+            contrastive_loss = self.compute_contrastive_loss(
+                outputs['original_projection'],
+                outputs['augmented_projection'],
+                labels,
+                epsilon
+            )
+        else:
+            contrastive_loss = torch.tensor(0.0, device=original_data.device)
         
         # Compute reconstruction loss
         reconstruction_loss = self.compute_reconstruction_loss(
@@ -364,10 +372,13 @@ class WindowSampler:
 class ContrastiveDataset(torch.utils.data.Dataset):
     """Dataset for contrastive learning with window sampling"""
     
-    def __init__(self, 
-                 data: np.ndarray, 
-                 window_size: int, 
-                 stride: int = None):
+    def __init__(self,
+                 data: np.ndarray,
+                 window_size: int,
+                 stride: int = None,
+                 mask_mode: str = 'none',
+                 mask_ratio: float = 0.0,
+                 mask_seed: int = None):
         """
         Args:
             data: Input data of shape (features, time_steps)
@@ -377,6 +388,10 @@ class ContrastiveDataset(torch.utils.data.Dataset):
         self.data = data
         self.window_size = window_size
         self.stride = stride if stride is not None else window_size
+        # Masking configuration
+        self.mask_mode = mask_mode  # 'none' | 'time' | 'feature'
+        self.mask_ratio = float(mask_ratio) if mask_ratio is not None else 0.0
+        self.mask_seed = mask_seed
         
         # Create window sampler
         self.sampler = WindowSampler(data, window_size, stride)
@@ -394,8 +409,21 @@ class ContrastiveDataset(torch.utils.data.Dataset):
         # Extract original window
         original_window = self.data[:, start_idx:end_idx]  # (features, window_size)
         
-        # For now, return the same window for both original and augmented
-        # Augmentation will be handled by the model's augmentation module
+        # Apply masking to ORIGINAL window (masked window is treated as original data)
+        if self.mask_mode != 'none' and self.mask_ratio > 0:
+            ws = original_window.shape[1]
+            feat = original_window.shape[0]
+            rng = np.random.RandomState(self.mask_seed + idx) if self.mask_seed is not None else np.random
+            if self.mask_mode == 'time':
+                num_mask = int(max(1, round(ws * self.mask_ratio)))
+                mask_idx = rng.choice(ws, size=min(num_mask, ws), replace=False)
+                original_window[:, mask_idx] = 0.0
+            elif self.mask_mode == 'feature':
+                num_mask = int(max(1, round(feat * self.mask_ratio)))
+                mask_idx = rng.choice(feat, size=min(num_mask, feat), replace=False)
+                original_window[mask_idx, :] = 0.0
+
+        # For contrastive forward, start augmented as a copy; model's augmentation will change it
         augmented_window = original_window.copy()
         
         # Transpose to (window_size, features)

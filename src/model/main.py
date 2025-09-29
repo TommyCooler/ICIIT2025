@@ -4,6 +4,7 @@ Main script for contrastive learning model training
 """
 
 import argparse
+from typing import List, Optional
 import torch
 import numpy as np
 import os
@@ -24,15 +25,15 @@ def parse_args():
     
     # Dataset arguments
     parser.add_argument('--dataset', type=str, default='ecg', 
-                       choices=['ecg', 'psm', 'nab', 'smap_msl', 'smd'],
+                       choices=['ecg', 'psm', 'nab', 'smap_msl', 'smd', 'ucr'],
                        help='Type of dataset to use')
-    parser.add_argument('--data_path', type=str, default='D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets/ecg',
+    parser.add_argument('--data_path', type=str, default='D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\datasets\ecg',
                        help='Path to dataset directory')
     parser.add_argument('--dataset_name', type=str, default=None,
                        help='Specific dataset name (for nab, smap_msl, smd)')
     
     # Model arguments
-    parser.add_argument('--input_dim', type=int, default=3,
+    parser.add_argument('--input_dim', type=int, default=2,
                        help='Input dimension (number of features)')
     parser.add_argument('--d_model', type=int, default=256,
                        help='Model dimension for transformer')
@@ -46,18 +47,22 @@ def parse_args():
                        help='Output dimension for TCN')
     parser.add_argument('--tcn_kernel_size', type=int, default=3,
                        help='Kernel size for TCN')
-    parser.add_argument('--tcn_num_layers', type=int, default=3,
+    parser.add_argument('--tcn_num_layers', type=int, default=4,
                        help='Number of TCN layers')
     parser.add_argument('--dropout', type=float, default=0.1,
                        help='Dropout rate')
-    parser.add_argument('--temperature', type=float, default=0.07,
+    parser.add_argument('--temperature', type=float, default=1,
                        help='Temperature for InfoNCE loss')
-    parser.add_argument('--combination_method', type=str, default='concat',
+    parser.add_argument('--combination_method', type=str, default='stack',
                        choices=['concat', 'stack'],
                        help='Method for combining TCN and Transformer outputs')
+    parser.add_argument('--use_contrastive', action='store_true', default=True,
+                       help='Use contrastive learning branch')
+    parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
+                       help='Disable contrastive learning branch')
     
     # Training arguments
-    parser.add_argument('--window_size', type=int, default=100,
+    parser.add_argument('--window_size', type=int, default=128,
                        help='Size of windows')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='Batch size')
@@ -73,6 +78,13 @@ def parse_args():
                        help='Weight for reconstruction loss')
     parser.add_argument('--epsilon', type=float, default=1e-5,
                        help='Small constant for numerical stability in contrastive loss')
+    # Masking options for training (augmented input masking)
+    parser.add_argument('--mask_mode', type=str, default='time', choices=['none', 'time', 'feature'],
+                       help='Masking mode for augmented input during training')
+    parser.add_argument('--mask_ratio', type=float, default=0.2,
+                       help='Fraction of timesteps/features to mask (0.0 - 1.0)')
+    parser.add_argument('--mask_seed', type=int, default=None,
+                       help='Random seed for masking reproducibility')
     
     # Wandb arguments
     parser.add_argument('--use_wandb', action='store_true', default=True,
@@ -86,17 +98,21 @@ def parse_args():
 # Augmentation is handled by the model, not in dataloader
     
     # System arguments
-    parser.add_argument('--device', type=str, default='auto',
+    parser.add_argument('--device', type=str, default='cuda',
                        choices=['auto', 'cuda', 'cpu'],
                        help='Device to use for training')
     parser.add_argument('--num_workers', type=int, default=4,
                        help='Number of worker processes for data loading')
-    parser.add_argument('--save_dir', type=str, default='checkpoints',
+    parser.add_argument('--save_dir', type=str, default=r'checkpoints',
                        help='Directory to save checkpoints')
     parser.add_argument('--save_every', type=int, default=10,
                        help='Save checkpoint every N epochs')
-    parser.add_argument('--resume', type=str, default=None,
-                       help='Path to checkpoint to resume from')
+    parser.add_argument('--resume', type=str, default="latest",
+                       help='Path to checkpoint to resume from, or "latest" to resume from latest checkpoint')
+    parser.add_argument('--resume_epoch', type=int, default=None,
+                       help='Specific epoch to resume from (if not specified, resume from last epoch in checkpoint)')
+    parser.add_argument('--list_checkpoints', action='store_true',
+                       help='List available checkpoints in save directory')
     
     # Other arguments
     parser.add_argument('--seed', type=int, default=42,
@@ -124,10 +140,45 @@ def get_device(device_arg: str) -> str:
     return device_arg
 
 
+def list_checkpoints(save_dir: str) -> List[str]:
+    """List available checkpoints in save directory"""
+    if not os.path.exists(save_dir):
+        print(f"Save directory {save_dir} does not exist")
+        return []
+    
+    checkpoint_files = []
+    for file in os.listdir(save_dir):
+        if file.endswith('.pth') and 'checkpoint_epoch_' in file:
+            checkpoint_files.append(os.path.join(save_dir, file))
+    
+    checkpoint_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
+    
+    print(f"\nAvailable checkpoints in {save_dir}:")
+    for i, checkpoint in enumerate(checkpoint_files):
+        filename = os.path.basename(checkpoint)
+        epoch = filename.split('_')[-1].split('.')[0]
+        print(f"  {i+1}. {filename} (Epoch {epoch})")
+    
+    return checkpoint_files
+
+
+def find_latest_checkpoint(save_dir: str) -> Optional[str]:
+    """Find the latest checkpoint in save directory"""
+    checkpoints = list_checkpoints(save_dir)
+    if not checkpoints:
+        return None
+    return checkpoints[-1]
+
+
 def get_input_dim(dataset: str, data_path: str = None) -> int:
     """Get input dimension based on dataset type or by loading data"""
-    # Try to load data to get actual input dimension
-    if data_path and dataset == 'ecg':
+    # For ECG dataset, always use 2 features (extracted from 3-column format)
+    if dataset == 'ecg':
+        print("ECG dataset: Using input_dim=2 (2 features extracted from [feature1, feature2, label] format)")
+        return 2
+    
+    # Try to load data to get actual input dimension for other datasets
+    if data_path:
         try:
             from src.utils.dataloader import DatasetFactory
             loader = DatasetFactory.create_loader(dataset, data_path, normalize=True)
@@ -141,7 +192,7 @@ def get_input_dim(dataset: str, data_path: str = None) -> int:
     
     # Fallback to default dimensions
     dims = {
-        'ecg': 2,  # Default fallback
+        'ecg': 2,  # 2 features from ECG data
         'psm': 25,
         'nab': 1,
         'smap_msl': 25,
@@ -153,6 +204,11 @@ def get_input_dim(dataset: str, data_path: str = None) -> int:
 def main():
     """Main function"""
     args = parse_args()
+    
+    # Handle list checkpoints
+    if args.list_checkpoints:
+        list_checkpoints(args.save_dir)
+        return 0
     
     # Set seed
     set_seed(args.seed)
@@ -174,14 +230,18 @@ def main():
     print(f"Window size: {args.window_size}")
     print(f"Batch size: {args.batch_size}")
     print(f"Number of epochs: {args.num_epochs}")
+    print(f"Use contrastive: {args.use_contrastive}")
+    print(f"Use wandb: {args.use_wandb}")
     print(f"Device: {device}")
     print(f"Random seed: {args.seed}")
     print("=" * 60)
     
-    # Create save directory
+    # Create save directory with timestamp to distinguish different training runs
+    from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_dir = os.path.join(args.save_dir, f"{args.dataset}_{timestamp}")
     os.makedirs(save_dir, exist_ok=True)
+    print(f"Save directory: {save_dir}")
     
     # Save configuration
     config_path = os.path.join(save_dir, 'config.json')
@@ -200,7 +260,9 @@ def main():
             window_size=args.window_size,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
-# Augmentation is handled by the model
+            mask_mode=args.mask_mode,
+            mask_ratio=max(0.0, min(1.0, float(args.mask_ratio))),
+            mask_seed=args.mask_seed
         )
         
         print(f"Train batches: {len(train_dataloader)}")
@@ -220,7 +282,8 @@ def main():
             tcn_num_layers=args.tcn_num_layers,
             dropout=args.dropout,
             temperature=args.temperature,
-            combination_method=args.combination_method
+            combination_method=args.combination_method,
+            use_contrastive=args.use_contrastive
         )
         
         print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -240,29 +303,43 @@ def main():
             save_dir=save_dir,
             use_wandb=args.use_wandb,
             project_name=args.project_name,
-            experiment_name=args.experiment_name
+            experiment_name=args.experiment_name,
+            window_size=args.window_size
         )
         
         # Resume from checkpoint if specified
         start_epoch = 0
         if args.resume:
-            print(f"\nResuming from checkpoint: {args.resume}")
-            start_epoch = trainer.load_checkpoint(args.resume)
+            if args.resume == 'latest':
+                # Find latest checkpoint
+                latest_checkpoint = find_latest_checkpoint(save_dir)
+                if latest_checkpoint:
+                    print(f"\nResuming from latest checkpoint: {latest_checkpoint}")
+                    start_epoch = trainer.load_checkpoint(latest_checkpoint)
+                else:
+                    print(f"\nNo checkpoints found in {save_dir}, starting from scratch")
+            else:
+                print(f"\nResuming from checkpoint: {args.resume}")
+                start_epoch = trainer.load_checkpoint(args.resume)
+            
+            # Override start epoch if specified
+            if args.resume_epoch is not None:
+                print(f"Note: resume_epoch specified ({args.resume_epoch}) but will continue from checkpoint epoch ({start_epoch})")
         
         # Train model
         print(f"\nStarting training from epoch {start_epoch + 1}...")
         trainer.train(
             num_epochs=args.num_epochs,
-            save_every=args.save_every
+            start_epoch=start_epoch
         )
         
         # Plot training history
         plot_path = os.path.join(save_dir, 'training_history.png')
         trainer.plot_training_history(plot_path)
         
-        # Save final model
-        final_checkpoint_path = os.path.join(save_dir, 'final_model.pt')
-        trainer.save_checkpoint(args.num_epochs - 1)
+        # Save final model (force save regardless of loss)
+        final_checkpoint_path = os.path.join(save_dir, 'final_model.pth')
+        trainer.save_checkpoint(args.num_epochs - 1, current_loss=None)
         print(f"\nFinal model saved to {final_checkpoint_path}")
         
         print("\nTraining completed successfully!")

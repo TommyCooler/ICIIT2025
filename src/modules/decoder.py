@@ -1,33 +1,41 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn import TransformerDecoder, TransformerDecoderLayer
 
 
-class TransformerDecoderBlock(nn.Module):
-    """Transformer Decoder Block"""
-    def __init__(self, d_model, nhead, dim_feedforward, num_layers, dropout=0.1):
-        super(TransformerDecoderBlock, self).__init__()
+class MLPDecoderBlock(nn.Module):
+    """Simple MLP Decoder Block for reconstruction"""
+    def __init__(self, d_model, output_dim, hidden_dims=None, dropout=0.1):
+        super(MLPDecoderBlock, self).__init__()
         
-        # Transformer decoder layers
-        decoder_layer = TransformerDecoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            batch_first=True
-        )
-        self.transformer_decoder = TransformerDecoder(decoder_layer, num_layers=num_layers)
+        if hidden_dims is None:
+            hidden_dims = [d_model, d_model // 2, d_model // 4]
         
-    def forward(self, tgt, memory):
+        # Build MLP layers
+        layers = []
+        input_dim = d_model
+        
+        for hidden_dim in hidden_dims:
+            layers.extend([
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            ])
+            input_dim = hidden_dim
+        
+        # Final output layer
+        layers.append(nn.Linear(input_dim, output_dim))
+        
+        self.mlp = nn.Sequential(*layers)
+        
+    def forward(self, x):
         """
         Args:
-            tgt: Target tensor of shape (batch_size, seq_len, d_model)
-            memory: Memory tensor from encoder of shape (batch_size, seq_len, d_model)
+            x: Input tensor of shape (batch_size, seq_len, d_model)
         Returns:
-            Output tensor of shape (batch_size, seq_len, d_model)
+            Output tensor of shape (batch_size, seq_len, output_dim)
         """
-        return self.transformer_decoder(tgt, memory)
+        return self.mlp(x)
 
 
 class TCNDecoderBlock(nn.Module):
@@ -88,110 +96,54 @@ class TCNDecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    """Decoder with Transformer and TCN blocks for reconstruction"""
+    """Simple MLP Decoder for reconstruction"""
     def __init__(self, 
                  d_model, 
                  output_dim,
-                 nhead=8, 
-                 dim_feedforward=512, 
-                 transformer_layers=6,
-                 tcn_output_dim=None,
-                 tcn_kernel_size=3,
-                 tcn_num_layers=3,
-                 dropout=0.1,
-                 combination_method='concat'):
+                 hidden_dims=None,
+                 dropout=0.1):
         """
         Args:
             d_model: Model dimension from encoder
             output_dim: Output dimension (should match input dimension of original data)
-            nhead: Number of attention heads
-            dim_feedforward: Feedforward dimension
-            transformer_layers: Number of transformer decoder layers
-            tcn_output_dim: Output dimension for TCN (default: same as d_model)
-            tcn_kernel_size: Kernel size for TCN
-            tcn_num_layers: Number of TCN layers
+            hidden_dims: List of hidden dimensions for MLP (default: [d_model, d_model//2, d_model//4])
             dropout: Dropout rate
-            combination_method: 'concat' or 'stack' for combining outputs
         """
         super(Decoder, self).__init__()
         
-        # Transformer Decoder Block
-        self.transformer_block = TransformerDecoderBlock(
+        # Simple MLP Decoder Block
+        self.mlp_block = MLPDecoderBlock(
             d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            num_layers=transformer_layers,
+            output_dim=output_dim,
+            hidden_dims=hidden_dims,
             dropout=dropout
         )
-        
-        # TCN Decoder Block
-        if tcn_output_dim is None:
-            tcn_output_dim = d_model
-            
-        self.tcn_block = TCNDecoderBlock(
-            input_dim=d_model,
-            output_dim=tcn_output_dim,
-            kernel_size=tcn_kernel_size,
-            num_layers=tcn_num_layers,
-            dropout=dropout
-        )
-        
-        # Combination method
-        self.combination_method = combination_method
-        
-        # Output projection
-        if combination_method == 'concat':
-            self.output_projection = nn.Linear(d_model + tcn_output_dim, output_dim)
-        elif combination_method == 'stack':
-            # For stack, we need to handle the extra dimension
-            self.output_projection = nn.Linear(d_model, output_dim)
-        else:
-            raise ValueError("combination_method must be 'concat' or 'stack'")
     
-    def forward(self, x, memory):
+    def forward(self, x):
         """
         Args:
             x: Input tensor of shape (batch_size, seq_len, d_model) - encoded augmented data
-            memory: Memory tensor from encoder of shape (batch_size, seq_len, d_model) - encoded original data
         Returns:
             Reconstructed output tensor of shape (batch_size, seq_len, output_dim)
         """
-        # Transformer Decoder (uses memory from encoder)
-        transformer_output = self.transformer_block(x, memory)  # (batch_size, seq_len, d_model)
-        
-        # TCN Decoder (uses input x)
-        tcn_output = self.tcn_block(x)  # (batch_size, seq_len, tcn_output_dim)
-        
-        # Combine outputs
-        if self.combination_method == 'concat':
-            # Concatenate along feature dimension
-            combined = torch.cat([transformer_output, tcn_output], dim=-1)
-            # Project to output dimension
-            output = self.output_projection(combined)
-            return output
-            
-        elif self.combination_method == 'stack':
-            # For stack, use transformer output and project to output dimension
-            output = self.output_projection(transformer_output)
-            return output
+        # Simple MLP reconstruction (no memory, no complex architecture)
+        output = self.mlp_block(x)
+        return output
     
-    def get_individual_outputs(self, x, memory):
+    def get_individual_outputs(self, x):
         """
-        Get outputs from individual blocks for analysis
+        Get outputs for analysis (for compatibility)
         
         Args:
             x: Input tensor of shape (batch_size, seq_len, d_model)
-            memory: Memory tensor from encoder
         Returns:
-            Dictionary with transformer and TCN outputs
+            Dictionary with MLP output
         """
         with torch.no_grad():
-            transformer_output = self.transformer_block(x, memory)
-            tcn_output = self.tcn_block(x)
+            mlp_output = self.mlp_block(x)
             
             return {
-                'transformer': transformer_output,
-                'tcn': tcn_output
+                'mlp': mlp_output
             }
 
 
@@ -203,37 +155,22 @@ if __name__ == "__main__":
     d_model = 256
     output_dim = 128
     
-    print("Testing Decoder with concat method:")
-    decoder_concat = Decoder(
+    print("Testing MLP Decoder:")
+    decoder = Decoder(
         d_model=d_model,
         output_dim=output_dim,
-        nhead=8,
-        transformer_layers=6,
-        tcn_output_dim=128,
-        combination_method='concat'
+        hidden_dims=[d_model, d_model//2, d_model//4],
+        dropout=0.1
     )
     
     x = torch.randn(batch_size, seq_len, d_model)  # Encoded augmented data
-    memory = torch.randn(batch_size, seq_len, d_model)  # Encoded original data
-    output_concat = decoder_concat(x, memory)
+    output = decoder(x)
     print(f"Input shape: {x.shape}")
-    print(f"Memory shape: {memory.shape}")
-    print(f"Output shape (concat): {output_concat.shape}")
-    
-    print("\nTesting Decoder with stack method:")
-    decoder_stack = Decoder(
-        d_model=d_model,
-        output_dim=output_dim,
-        nhead=8,
-        transformer_layers=6,
-        tcn_output_dim=d_model,  # Same as d_model for stack
-        combination_method='stack'
-    )
-    
-    output_stack = decoder_stack(x, memory)
-    print(f"Output shape (stack): {output_stack.shape}")
+    print(f"Output shape: {output.shape}")
     
     print("\nIndividual outputs:")
-    individual_outputs = decoder_concat.get_individual_outputs(x, memory)
+    individual_outputs = decoder.get_individual_outputs(x)
     for name, output_tensor in individual_outputs.items():
         print(f"{name}: {output_tensor.shape}")
+    
+    print(f"\nModel parameters: {sum(p.numel() for p in decoder.parameters()):,}")

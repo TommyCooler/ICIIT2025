@@ -29,9 +29,13 @@ class ContrastiveTrainer:
                  epsilon: float = 1e-5,
                  device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
                  save_dir: str = 'checkpoints',
-                 use_wandb: bool = True,
+                 use_wandb: bool = False,
                  project_name: str = 'contrastive-learning',
-                 experiment_name: str = None):
+                 experiment_name: str = None,
+                 use_lr_scheduler: bool = False,
+                 scheduler_type: str = 'cosine',
+                 scheduler_params: Optional[Dict] = None,
+                 window_size: int = None):
         """
         Args:
             model: Contrastive learning model
@@ -47,6 +51,9 @@ class ContrastiveTrainer:
             use_wandb: Whether to use wandb for logging
             project_name: Wandb project name
             experiment_name: Wandb experiment name
+            use_lr_scheduler: Whether to use learning rate scheduler
+            scheduler_type: Type of scheduler ('cosine', 'step', 'exponential', 'plateau')
+            scheduler_params: Additional parameters for scheduler
         """
         self.model = model.to(device)
         self.train_dataloader = train_dataloader
@@ -54,6 +61,7 @@ class ContrastiveTrainer:
         self.device = device
         self.save_dir = save_dir
         self.use_wandb = use_wandb
+        self.window_size = window_size
         
         # Loss weights
         self.contrastive_weight = contrastive_weight
@@ -64,21 +72,26 @@ class ContrastiveTrainer:
         self.optimizer = optim.AdamW(
             self.model.parameters(),
             lr=learning_rate,
-            weight_decay=weight_decay
+            weight_decay=0
         )
         
-        # Learning rate scheduler
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer,
-            T_max=100,
-            eta_min=1e-6
-        )
+        # Learning rate scheduler setup
+        self.use_lr_scheduler = use_lr_scheduler
+        self.scheduler_type = scheduler_type
+        self.scheduler_params = scheduler_params or {}
+        self.scheduler = None
+        
+        if self.use_lr_scheduler:
+            self._setup_scheduler()
         
         # Training history
         self.train_losses = []
         self.val_losses = []
         self.contrastive_losses = []
         self.reconstruction_losses = []
+        
+        # Best loss tracking for checkpoint saving
+        self.best_loss = float('inf')
         
         # Create save directory
         os.makedirs(save_dir, exist_ok=True)
@@ -91,6 +104,7 @@ class ContrastiveTrainer:
             wandb.init(
                 project=project_name,
                 name=experiment_name,
+                resume="allow",
                 config={
                     'learning_rate': learning_rate,
                     'weight_decay': weight_decay,
@@ -103,7 +117,69 @@ class ContrastiveTrainer:
                     'val_batches': len(val_dataloader) if val_dataloader else 0
                 }
             )
-        
+    
+    def _setup_scheduler(self):
+        """Setup learning rate scheduler based on type"""
+        if self.scheduler_type == 'cosine':
+            # Cosine annealing scheduler
+            t_max = self.scheduler_params.get('T_max', 100)
+            eta_min = self.scheduler_params.get('eta_min', 1e-6)
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                T_max=t_max,
+                eta_min=eta_min
+            )
+            
+        elif self.scheduler_type == 'step':
+            # Step scheduler
+            step_size = self.scheduler_params.get('step_size', 30)
+            gamma = self.scheduler_params.get('gamma', 0.1)
+            self.scheduler = optim.lr_scheduler.StepLR(
+                self.optimizer,
+                step_size=step_size,
+                gamma=gamma
+            )
+            
+        elif self.scheduler_type == 'exponential':
+            # Exponential scheduler
+            gamma = self.scheduler_params.get('gamma', 0.95)
+            self.scheduler = optim.lr_scheduler.ExponentialLR(
+                self.optimizer,
+                gamma=gamma
+            )
+            
+        elif self.scheduler_type == 'plateau':
+            # Reduce on plateau scheduler
+            mode = self.scheduler_params.get('mode', 'min')
+            factor = self.scheduler_params.get('factor', 0.5)
+            patience = self.scheduler_params.get('patience', 10)
+            threshold = self.scheduler_params.get('threshold', 1e-4)
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode=mode,
+                factor=factor,
+                patience=patience,
+                threshold=threshold
+            )
+            
+        else:
+            raise ValueError(f"Unknown scheduler type: {self.scheduler_type}")
+    
+    def get_current_lr(self) -> float:
+        """Get current learning rate"""
+        if self.scheduler is not None:
+            return self.scheduler.get_last_lr()[0]
+        else:
+            return self.optimizer.param_groups[0]['lr']
+    
+    def update_lr_scheduler(self, metric: Optional[float] = None):
+        """Update learning rate scheduler"""
+        if self.scheduler is not None:
+            if self.scheduler_type == 'plateau' and metric is not None:
+                self.scheduler.step(metric)
+            else:
+                self.scheduler.step()
+    
     def train_epoch(self) -> Dict[str, float]:
         """Train for one epoch"""
         self.model.train()
@@ -164,8 +240,8 @@ class ContrastiveTrainer:
                     'batch/learning_rate': self.optimizer.param_groups[0]['lr']
                 })
         
-        # Update learning rate
-        self.scheduler.step()
+        # Update learning rate scheduler
+        self.update_lr_scheduler()
         
         # Compute average losses
         avg_losses = {
@@ -253,7 +329,7 @@ class ContrastiveTrainer:
         
         return avg_losses
     
-    def train(self, num_epochs: int, save_every: int = 10) -> Dict[str, List[float]]:
+    def train(self, num_epochs: int, start_epoch: int = 0) -> Dict[str, List[float]]:
         """Train the model for specified number of epochs"""
         print(f"Starting training for {num_epochs} epochs...")
         print(f"Device: {self.device}")
@@ -262,10 +338,11 @@ class ContrastiveTrainer:
         # Removed validation - only training
         
         # Create epoch progress bar
-        epoch_pbar = tqdm(range(num_epochs), desc="Training Epochs", position=0)
+        epoch_indices = range(start_epoch, start_epoch + num_epochs)
+        epoch_pbar = tqdm(epoch_indices, desc="Training Epochs", position=0)
         
         for epoch in epoch_pbar:
-            print(f"\nEpoch {epoch + 1}/{num_epochs}")
+            print(f"\nEpoch {epoch + 1}")
             print("-" * 50)
             
             # Training
@@ -278,15 +355,11 @@ class ContrastiveTrainer:
             print(f"Train Contrastive Loss: {train_losses['contrastive_loss']:.4f}")
             print(f"Train Reconstruction Loss: {train_losses['reconstruction_loss']:.4f}")
             
-            # Save checkpoint after every epoch
-            self.save_checkpoint(epoch)
-            
-            # Save additional checkpoint every save_every epochs
-            if (epoch + 1) % save_every == 0:
-                self.save_checkpoint(epoch, suffix=f"_every_{save_every}")
+            # Save checkpoint only if loss is better than previous best
+            self.save_checkpoint(epoch, current_loss=train_losses['total_loss'])
             
             # Print learning rate
-            current_lr = self.scheduler.get_last_lr()[0]
+            current_lr = self.get_current_lr()
             print(f"Learning Rate: {current_lr:.6f}")
             
             # Update epoch progress bar
@@ -321,31 +394,44 @@ class ContrastiveTrainer:
             'reconstruction_losses': self.reconstruction_losses
         }
     
-    def save_checkpoint(self, epoch: int, is_best: bool = False, suffix: str = ""):
-        """Save model checkpoint"""
+    def save_checkpoint(self, epoch: int, current_loss: float = None):
+        """Save model checkpoint only if loss is better than previous best"""
+        # If current_loss is provided, check if it's better than best_loss
+        should_save = False
+        if current_loss is not None:
+            if current_loss < self.best_loss:
+                self.best_loss = current_loss
+                should_save = True
+                print(f"New best loss: {current_loss:.4f} (previous: {self.best_loss:.4f})")
+            else:
+                print(f"Loss {current_loss:.4f} not better than best {self.best_loss:.4f}, skipping checkpoint save")
+        else:
+            # If no current_loss provided, save anyway (for final model)
+            should_save = True
+        
+        if not should_save:
+            return
+        
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler is not None else None,
             'train_losses': self.train_losses,
             'val_losses': self.val_losses,
             'contrastive_losses': self.contrastive_losses,
             'reconstruction_losses': self.reconstruction_losses,
             'contrastive_weight': self.contrastive_weight,
-            'reconstruction_weight': self.reconstruction_weight
+            'reconstruction_weight': self.reconstruction_weight,
+            'best_loss': self.best_loss,
+            # Add window_size for inference compatibility
+            'window_size': getattr(self, 'window_size', None)
         }
         
-        # Save regular checkpoint
-        checkpoint_path = os.path.join(self.save_dir, f'checkpoint_epoch_{epoch + 1}{suffix}.pt')
+        # Save checkpoint with fixed filename (overwrite previous)
+        checkpoint_path = os.path.join(self.save_dir, 'best_model.pth')
         torch.save(checkpoint, checkpoint_path)
-        print(f"Checkpoint saved: {checkpoint_path}")
-        
-        # Save best model
-        if is_best:
-            best_path = os.path.join(self.save_dir, 'best_model.pt')
-            torch.save(checkpoint, best_path)
-            print(f"Best model saved: {best_path}")
+        print(f"Best checkpoint saved: {checkpoint_path} (loss: {self.best_loss:.4f})")
     
     def load_checkpoint(self, checkpoint_path: str):
         """Load model checkpoint"""
@@ -353,14 +439,19 @@ class ContrastiveTrainer:
         
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        
+        # Load scheduler if available
+        if checkpoint.get('scheduler_state_dict') is not None and self.scheduler is not None:
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         
         self.train_losses = checkpoint.get('train_losses', [])
         self.val_losses = checkpoint.get('val_losses', [])
         self.contrastive_losses = checkpoint.get('contrastive_losses', [])
         self.reconstruction_losses = checkpoint.get('reconstruction_losses', [])
+        self.best_loss = checkpoint.get('best_loss', float('inf'))
         
         print(f"Checkpoint loaded from {checkpoint_path}")
+        print(f"Best loss from checkpoint: {self.best_loss:.4f}")
         return checkpoint['epoch']
     
     def plot_training_history(self, save_path: Optional[str] = None):
@@ -394,14 +485,15 @@ class ContrastiveTrainer:
         axes[1, 0].grid(True)
         
         # Learning rate
-        LEARNING_RATE_LABEL = 'Learning Rate'
-        lr_history = [self.scheduler.get_last_lr()[0] for _ in range(len(self.train_losses))]
-        axes[1, 1].plot(lr_history, label=LEARNING_RATE_LABEL, color='purple')
-        axes[1, 1].set_title(LEARNING_RATE_LABEL)
-        axes[1, 1].set_xlabel('Epoch')
-        axes[1, 1].set_ylabel(LEARNING_RATE_LABEL)
-        axes[1, 1].legend()
-        axes[1, 1].grid(True)
+        if self.scheduler is not None:
+            LEARNING_RATE_LABEL = 'Learning Rate'
+            lr_history = [self.scheduler.get_last_lr()[0] for _ in range(len(self.train_losses))]
+            axes[1, 1].plot(lr_history, label=LEARNING_RATE_LABEL, color='purple')
+            axes[1, 1].set_title(LEARNING_RATE_LABEL)
+            axes[1, 1].set_xlabel('Epoch')
+            axes[1, 1].set_ylabel(LEARNING_RATE_LABEL)
+            axes[1, 1].legend()
+            axes[1, 1].grid(True)
         
         plt.tight_layout()
         
@@ -414,9 +506,12 @@ class ContrastiveTrainer:
 
 def create_contrastive_dataloaders(dataset_type: str,
                                  data_path: str,
-                                 window_size: int = 100,
+                                 window_size: int = 128,
                                  batch_size: int = 32,
                                  num_workers: int = 4,
+                                 mask_mode: str = 'none',
+                                 mask_ratio: float = 0.0,
+                                 mask_seed: int = None,
                                  **kwargs) -> Tuple[DataLoader, Optional[DataLoader]]:
     """
     Create dataloaders for contrastive learning
@@ -450,7 +545,10 @@ def create_contrastive_dataloaders(dataset_type: str,
     contrastive_train_dataset = ContrastiveDataset(
         data=train_dataset.data,
         window_size=window_size,
-        stride=window_size
+        stride=window_size,
+        mask_mode=mask_mode,
+        mask_ratio=mask_ratio,
+        mask_seed=mask_seed
     )
     
     # Create dataloaders
@@ -469,7 +567,10 @@ def create_contrastive_dataloaders(dataset_type: str,
         contrastive_val_dataset = ContrastiveDataset(
             data=val_dataset.data,
             window_size=window_size,
-            stride=window_size
+            stride=window_size,
+            mask_mode=mask_mode,
+            mask_ratio=mask_ratio,
+            mask_seed=mask_seed
         )
         
         val_dataloader = DataLoader(
@@ -488,7 +589,7 @@ if __name__ == "__main__":
     # Parameters
     dataset_type = 'ecg'
     data_path = 'datasets/ecg'
-    window_size = 100
+    window_size = 128
     batch_size = 32
     num_epochs = 50
     
@@ -522,7 +623,7 @@ if __name__ == "__main__":
     )
     
     # Train model
-    history = trainer.train(num_epochs=num_epochs, save_every=10)
+    history = trainer.train(num_epochs=num_epochs)
     
     # Plot training history
     trainer.plot_training_history('training_history.png')

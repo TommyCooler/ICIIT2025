@@ -54,33 +54,26 @@ class CNNAugmentation(nn.Module):
 
 
 class TCNAugmentation(nn.Module):
-    """Temporal Convolutional Network for augmentation"""
-    def __init__(self, input_dim, output_dim, kernel_size=3, dilation=1, dropout=0.1):
+    """Temporal Convolutional augmentation (single-layer, no dilation)"""
+    def __init__(self, input_dim, output_dim, kernel_size=3, dropout=0.1):
         super(TCNAugmentation, self).__init__()
-        self.conv = nn.Conv1d(input_dim, output_dim, kernel_size, 
-                             padding=(kernel_size-1)*dilation, dilation=dilation)
+        # No dilation, single conv layer, use same-like padding
+        self.conv = nn.Conv1d(input_dim, output_dim, kernel_size, padding=kernel_size//2, dilation=1)
         self.dropout = nn.Dropout(dropout)
-        self.dilation = dilation
         
     def forward(self, x):
         # x shape: (batch_size, seq_len, input_dim) hoặc (seq_len, input_dim)
         if x.dim() == 2:
-            # x shape: (seq_len, input_dim) -> add batch dimension
             x = x.unsqueeze(0)  # (1, seq_len, input_dim)
             x = x.transpose(1, 2)  # (1, input_dim, seq_len)
             x = self.conv(x)
-            # Crop để giữ nguyên sequence length
-            x = x[:, :, :-self.conv.padding[0]] if self.conv.padding[0] > 0 else x
             x = F.relu(x)
             x = self.dropout(x)
             result = x.transpose(1, 2)  # (1, seq_len, output_dim)
             return result.squeeze(0)  # (seq_len, output_dim)
         else:
-            # x shape: (batch_size, seq_len, input_dim)
             x = x.transpose(1, 2)  # (batch_size, input_dim, seq_len)
             x = self.conv(x)
-            # Crop để giữ nguyên sequence length
-            x = x[:, :, :-self.conv.padding[0]] if self.conv.padding[0] > 0 else x
             x = F.relu(x)
             x = self.dropout(x)
             return x.transpose(1, 2)  # (batch_size, seq_len, output_dim)
@@ -108,7 +101,7 @@ class LSTMAugmentation(nn.Module):
 
 
 class EncoderTransformerAugmentation(nn.Module):
-    """Transformer Encoder for augmentation"""
+    """Transformer Encoder for augmentation (single layer)"""
     def __init__(self, input_dim, output_dim, nhead=8, num_layers=1, dropout=0.1):
         super(EncoderTransformerAugmentation, self).__init__()
         
@@ -127,7 +120,8 @@ class EncoderTransformerAugmentation(nn.Module):
             dropout=dropout,
             batch_first=True
         )
-        self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=num_layers)
+        # Force to a single layer transformer
+        self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=1)
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x):
@@ -148,11 +142,14 @@ class EncoderTransformerAugmentation(nn.Module):
 
 class Augmentation(nn.Module):
     """Main augmentation class that combines all nonlinear modules"""
-    def __init__(self, input_dim, output_dim, dropout=0.1, **kwargs):
+    def __init__(self, input_dim, output_dim, dropout=0.1, temperature=1.0, **kwargs):
         super(Augmentation, self).__init__()
         
         # Get nhead for transformer
         nhead = kwargs.get('nhead', 8)
+        
+        # Temperature parameter for softmax (tau)
+        self.temperature = temperature
         
         # Enforce identical input/output feature dimension for all modules
         desired_output_dim = input_dim
@@ -167,10 +164,12 @@ class Augmentation(nn.Module):
         self.cnn_module = CNNAugmentation(input_dim, desired_output_dim, 
                                         kernel_size=kwargs.get('cnn_kernel_size', 3), 
                                         dropout=dropout)
-        self.tcn_module = TCNAugmentation(input_dim, desired_output_dim,
-                                        kernel_size=kwargs.get('tcn_kernel_size', 3),
-                                        dilation=kwargs.get('tcn_dilation', 1),
-                                        dropout=dropout)
+        self.tcn_module = TCNAugmentation(
+            input_dim,
+            desired_output_dim,
+            kernel_size=kwargs.get('tcn_kernel_size', 3),
+            dropout=dropout
+        )
         self.lstm_module = LSTMAugmentation(input_dim, desired_output_dim, dropout)
         self.transformer_module = EncoderTransformerAugmentation(
             input_dim, transformer_output_dim,
@@ -209,14 +208,18 @@ class Augmentation(nn.Module):
         if self.transformer_projection is not None:
             transformer_out = self.transformer_projection(transformer_out)
         
-        # Stack all outputs
+        # Stack all outputs: (num_aug, batch, seq_len, feat)
         outputs = torch.stack([linear_out, cnn_out, tcn_out, lstm_out, transformer_out], dim=0)
-        
-        # Apply softmax to weights for normalization
-        weights = F.softmax(self.alpha, dim=0)
-        
-        # Weighted combination
-        combined_output = torch.sum(outputs * weights.view(5, 1, 1, 1), dim=0)
+
+        # Learned probabilities for 5 augmentations (after temperature-scaled softmax)
+        probs = F.softmax(self.alpha / self.temperature, dim=0)  # (5,)
+
+        # Flatten per augmentation, apply weights, reshape back, then sum over aug dimension
+        num_aug, bsz, seq_len, feat = outputs.shape
+        outputs_flat = outputs.reshape(num_aug, bsz * seq_len * feat)  # (5, N)
+        weighted_flat = torch.unsqueeze(probs, -1) * outputs_flat       # (5, N)
+        weighted = weighted_flat.reshape(num_aug, bsz, seq_len, feat)   # (5, B, T, D)
+        combined_output = torch.sum(weighted, dim=0)                    # (B, T, D)
         
         return combined_output
     
@@ -245,7 +248,7 @@ class Augmentation(nn.Module):
     
     def get_combination_weights(self):
         """Get current combination weights"""
-        return F.softmax(self.alpha, dim=0)
+        return F.softmax(self.alpha / self.temperature, dim=0)
 
 
 # Example usage and testing
@@ -256,23 +259,34 @@ if __name__ == "__main__":
     input_dim = 128
     output_dim = 64
     
-    # Create augmentation module
-    augmentation = Augmentation(input_dim, output_dim, dropout=0.1)
+    # Test different temperature values
+    temperatures = [0.1, 0.5, 1.0, 2.0, 5.0]
     
-    # Create sample input
-    x = torch.randn(batch_size, seq_len, input_dim)
+    print("Testing Augmentation with different temperatures:")
+    print("=" * 60)
     
-    # Forward pass
-    output = augmentation(x)
-    print(f"Input shape: {x.shape}")
-    print(f"Output shape: {output.shape}")
+    for temp in temperatures:
+        print(f"\nTemperature: {temp}")
+        print("-" * 30)
+        
+        # Create augmentation module
+        augmentation = Augmentation(input_dim, output_dim, dropout=0.1, temperature=temp)
+        
+        # Create sample input
+        x = torch.randn(batch_size, seq_len, input_dim)
+        
+        # Forward pass
+        output = augmentation(x)
+        print(f"Input shape: {x.shape}")
+        print(f"Output shape: {output.shape}")
+        
+        # Get combination weights
+        weights = augmentation.get_combination_weights()
+        print(f"Combination weights: {weights.detach().numpy()}")
+        print(f"Weight entropy: {-torch.sum(weights * torch.log(weights + 1e-8)).item():.4f}")
     
-    # Get individual module outputs
-    module_outputs = augmentation.get_module_outputs(x)
-    print("\nIndividual module outputs:")
-    for name, output_tensor in module_outputs.items():
-        print(f"{name}: {output_tensor.shape}")
-    
-    # Get combination weights
-    weights = augmentation.get_combination_weights()
-    print(f"\nCombination weights: {weights}")
+    print("\n" + "=" * 60)
+    print("Temperature effects:")
+    print("- Low temperature (0.1): Sharp distribution, one augmentation dominates")
+    print("- Medium temperature (1.0): Balanced distribution")
+    print("- High temperature (5.0): Smooth distribution, more uniform mixing")
