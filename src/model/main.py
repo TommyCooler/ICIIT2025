@@ -282,6 +282,16 @@ def main():
         
         print(f"Train batches: {len(train_dataloader)}")
         # Validation is disabled; do not print val batches
+
+        # Detect feature dimension from a sample batch to ensure consistency
+        try:
+            sample_orig, _ = next(iter(train_dataloader))
+            detected_input_dim = int(sample_orig.shape[-1])
+            if args.input_dim is None or args.input_dim != detected_input_dim:
+                print(f"Detected input_dim from data: {detected_input_dim} (overriding args.input_dim={args.input_dim})")
+                args.input_dim = detected_input_dim
+        except Exception as e:
+            print(f"Warning: Could not detect input_dim from dataloader: {e}")
         
         # Create model
         print("\nCreating model...")
