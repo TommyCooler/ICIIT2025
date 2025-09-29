@@ -29,8 +29,8 @@ def parse_args():
                        help='Type of dataset to use')
     parser.add_argument('--data_path', type=str, default='D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\datasets\ecg',
                        help='Path to dataset directory')
-    parser.add_argument('--dataset_name', type=str, default=None,
-                       help='Specific dataset name (for nab, smap_msl, smd)')
+    parser.add_argument('--dataset_name', type=str, default='chfdb_chf01_275.pkl',
+                       help='Specific dataset name (for ecg, nab, smap_msl, smd)')
     
     # Model arguments
     parser.add_argument('--input_dim', type=int, default=2,
@@ -56,6 +56,20 @@ def parse_args():
     parser.add_argument('--combination_method', type=str, default='stack',
                        choices=['concat', 'stack'],
                        help='Method for combining TCN and Transformer outputs')
+
+    # Augmentation-specific overrides (distinct names to avoid confusion with encoder)
+    parser.add_argument('--aug_nhead', type=int, default=4,
+                       help='Augmentation transformer nhead (override; default: model nhead)')
+    parser.add_argument('--aug_num_layers', type=int, default=1,
+                       help='Augmentation transformer number of layers')
+    parser.add_argument('--aug_tcn_kernel_size', type=int, default=3,
+                       help='Augmentation TCN kernel size (override; default: model tcn_kernel_size)')
+    parser.add_argument('--aug_tcn_num_layers', type=int, default=1,
+                       help='Augmentation TCN number of layers')
+    parser.add_argument('--aug_dropout', type=float, default=0.1,
+                       help='Augmentation dropout (override; default: model dropout)')
+    parser.add_argument('--aug_temperature', type=float, default=None,
+                       help='Augmentation temperature (override; default: model temperature)')
     parser.add_argument('--use_contrastive', action='store_true', default=True,
                        help='Use contrastive learning branch')
     parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
@@ -252,7 +266,7 @@ def main():
     
     try:
         # Create dataloaders
-        print("\nCreating dataloaders...")
+        print("\nCreating dataloaders (no validation)...")
         train_dataloader, val_dataloader = create_contrastive_dataloaders(
             dataset_type=args.dataset,
             data_path=args.data_path,
@@ -266,8 +280,7 @@ def main():
         )
         
         print(f"Train batches: {len(train_dataloader)}")
-        if val_dataloader:
-            print(f"Validation batches: {len(val_dataloader)}")
+        # Validation is disabled; do not print val batches
         
         # Create model
         print("\nCreating model...")
@@ -283,7 +296,16 @@ def main():
             dropout=args.dropout,
             temperature=args.temperature,
             combination_method=args.combination_method,
-            use_contrastive=args.use_contrastive
+            use_contrastive=args.use_contrastive,
+            augmentation_kwargs={
+                # Only pass if provided; ContrastiveModel will fallback to model params
+                **({ 'nhead': args.aug_nhead } if args.aug_nhead is not None else {}),
+                **({ 'tcn_kernel_size': args.aug_tcn_kernel_size } if args.aug_tcn_kernel_size is not None else {}),
+                **({ 'tcn_num_layers': args.aug_tcn_num_layers } if args.aug_tcn_num_layers is not None else {}),
+                'num_layers': args.aug_num_layers,
+                **({ 'dropout': args.aug_dropout } if args.aug_dropout is not None else {}),
+                **({ 'temperature': args.aug_temperature } if args.aug_temperature is not None else {}),
+            }
         )
         
         print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")

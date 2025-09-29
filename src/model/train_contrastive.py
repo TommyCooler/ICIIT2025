@@ -55,10 +55,11 @@ class ContrastiveTrainer:
             scheduler_type: Type of scheduler ('cosine', 'step', 'exponential', 'plateau')
             scheduler_params: Additional parameters for scheduler
         """
-        self.model = model.to(device)
+        # Force CUDA usage for training
+        self.model = model.to('cuda')
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
-        self.device = device
+        self.device = 'cuda'
         self.save_dir = save_dir
         self.use_wandb = use_wandb
         self.window_size = window_size
@@ -188,7 +189,13 @@ class ContrastiveTrainer:
         total_reconstruction_loss = 0.0
         num_batches = 0
         
-        pbar = tqdm(self.train_dataloader, desc="Training")
+        pbar = tqdm(
+            self.train_dataloader,
+            desc="Training",
+            position=0,
+            leave=False,
+            dynamic_ncols=True
+        )
         for original_batch, augmented_batch in pbar:
             # Move to device
             original_batch = original_batch.to(self.device)
@@ -337,11 +344,9 @@ class ContrastiveTrainer:
         
         # Removed validation - only training
         
-        # Create epoch progress bar
+        # Simple epoch loop without an outer tqdm to avoid duplicate bars
         epoch_indices = range(start_epoch, start_epoch + num_epochs)
-        epoch_pbar = tqdm(epoch_indices, desc="Training Epochs", position=0)
-        
-        for epoch in epoch_pbar:
+        for epoch in epoch_indices:
             print(f"\nEpoch {epoch + 1}")
             print("-" * 50)
             
@@ -362,13 +367,7 @@ class ContrastiveTrainer:
             current_lr = self.get_current_lr()
             print(f"Learning Rate: {current_lr:.6f}")
             
-            # Update epoch progress bar
-            epoch_pbar.set_postfix({
-                'Train Loss': f"{train_losses['total_loss']:.4f}",
-                'Contrastive': f"{train_losses['contrastive_loss']:.4f}",
-                'Reconstruction': f"{train_losses['reconstruction_loss']:.4f}",
-                'LR': f"{current_lr:.6f}"
-            })
+            # No outer tqdm; keep logs concise
             
             # Log epoch summary to wandb
             if self.use_wandb:
@@ -528,13 +527,15 @@ def create_contrastive_dataloaders(dataset_type: str,
         Tuple of (train_dataloader, val_dataloader)
     """
     # Load dataset using existing dataloader
+    # Disable validation split/use for training pipeline
     dataloaders = create_dataloaders(
         dataset_type=dataset_type,
         data_path=data_path,
         window_size=window_size,
-        stride=window_size,  # Non-overlapping windows
+        stride=1,  # Non-overlapping windows
         batch_size=batch_size,
         num_workers=num_workers,
+        validation_ratio=0.0,
         **kwargs
     )
     
@@ -545,7 +546,7 @@ def create_contrastive_dataloaders(dataset_type: str,
     contrastive_train_dataset = ContrastiveDataset(
         data=train_dataset.data,
         window_size=window_size,
-        stride=window_size,
+        stride=1,
         mask_mode=mask_mode,
         mask_ratio=mask_ratio,
         mask_seed=mask_seed
@@ -560,26 +561,8 @@ def create_contrastive_dataloaders(dataset_type: str,
         pin_memory=True
     )
     
-    # Validation dataloader (optional)
+    # Do not construct validation dataloader (not used)
     val_dataloader = None
-    if 'val' in dataloaders:
-        val_dataset = dataloaders['val'].dataset
-        contrastive_val_dataset = ContrastiveDataset(
-            data=val_dataset.data,
-            window_size=window_size,
-            stride=window_size,
-            mask_mode=mask_mode,
-            mask_ratio=mask_ratio,
-            mask_seed=mask_seed
-        )
-        
-        val_dataloader = DataLoader(
-            contrastive_val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=True
-        )
     
     return train_dataloader, val_dataloader
 

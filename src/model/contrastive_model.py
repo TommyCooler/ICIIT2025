@@ -48,7 +48,8 @@ class ContrastiveModel(nn.Module):
                  dropout: float = 0.1,
                  temperature: float = 1,
                  combination_method: str = 'concat',
-                 use_contrastive: bool = True):
+                 use_contrastive: bool = True,
+                 augmentation_kwargs: Optional[Dict] = None):
         """
         Args:
             input_dim: Input dimension (number of features)
@@ -105,11 +106,25 @@ class ContrastiveModel(nn.Module):
         )
         
         # Augmentation module for data augmentation
+        # Allow augmentation-specific overrides via augmentation_kwargs while keeping backward compatibility
+        aug_kwargs = augmentation_kwargs.copy() if augmentation_kwargs is not None else {}
+        aug_dropout = aug_kwargs.pop('dropout', dropout)
+        aug_temperature = aug_kwargs.pop('temperature', temperature)
+        # Provide sensible defaults from model config if not explicitly provided
+        if 'nhead' not in aug_kwargs:
+            aug_kwargs['nhead'] = nhead
+        if 'tcn_kernel_size' not in aug_kwargs:
+            aug_kwargs['tcn_kernel_size'] = tcn_kernel_size
+        if 'num_layers' not in aug_kwargs:
+            # Default augmentation transformer num layers = 1 unless overridden
+            aug_kwargs['num_layers'] = 1
+        
         self.augmentation = Augmentation(
             input_dim=input_dim,
             output_dim=input_dim,
-            dropout=dropout,
-            temperature=temperature
+            dropout=aug_dropout,
+            temperature=aug_temperature,
+            **aug_kwargs
         )
         
     def forward(self, original_data: torch.Tensor, augmented_data: torch.Tensor) -> Dict[str, torch.Tensor]:

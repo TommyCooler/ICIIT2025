@@ -54,28 +54,30 @@ class CNNAugmentation(nn.Module):
 
 
 class TCNAugmentation(nn.Module):
-    """Temporal Convolutional augmentation (single-layer, no dilation)"""
-    def __init__(self, input_dim, output_dim, kernel_size=3, dropout=0.1):
+    """Temporal Convolutional augmentation (stacked convs, no dilation)"""
+    def __init__(self, input_dim, output_dim, kernel_size=3, num_layers=1, dropout=0.1):
         super(TCNAugmentation, self).__init__()
-        # No dilation, single conv layer, use same-like padding
-        self.conv = nn.Conv1d(input_dim, output_dim, kernel_size, padding=kernel_size//2, dilation=1)
-        self.dropout = nn.Dropout(dropout)
+        # Build a simple stack of Conv1d layers with same-like padding (no dilation)
+        layers = []
+        in_ch = input_dim
+        for _ in range(max(1, int(num_layers))):
+            layers.append(nn.Conv1d(in_ch, output_dim, kernel_size, padding=kernel_size//2, dilation=1))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout))
+            in_ch = output_dim
+        self.net = nn.Sequential(*layers)
         
     def forward(self, x):
         # x shape: (batch_size, seq_len, input_dim) hoặc (seq_len, input_dim)
         if x.dim() == 2:
             x = x.unsqueeze(0)  # (1, seq_len, input_dim)
             x = x.transpose(1, 2)  # (1, input_dim, seq_len)
-            x = self.conv(x)
-            x = F.relu(x)
-            x = self.dropout(x)
+            x = self.net(x)
             result = x.transpose(1, 2)  # (1, seq_len, output_dim)
             return result.squeeze(0)  # (seq_len, output_dim)
         else:
             x = x.transpose(1, 2)  # (batch_size, input_dim, seq_len)
-            x = self.conv(x)
-            x = F.relu(x)
-            x = self.dropout(x)
+            x = self.net(x)
             return x.transpose(1, 2)  # (batch_size, seq_len, output_dim)
 
 
@@ -168,6 +170,7 @@ class Augmentation(nn.Module):
             input_dim,
             desired_output_dim,
             kernel_size=kwargs.get('tcn_kernel_size', 3),
+            num_layers=kwargs.get('tcn_num_layers', 1),
             dropout=dropout
         )
         self.lstm_module = LSTMAugmentation(input_dim, desired_output_dim, dropout)

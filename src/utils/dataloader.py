@@ -661,9 +661,7 @@ def create_dataloaders(dataset_type: str, data_path: str,
     
     # Create dataset loader
     loader_kwargs = kwargs.copy()
-    if dataset_name is not None:
-        loader_kwargs['dataset_name'] = dataset_name
-    
+    # Do NOT pass dataset_name to loader __init__; it's only used at load time
     loader = DatasetFactory.create_loader(
         dataset_type=dataset_type,
         data_path=data_path,
@@ -672,14 +670,15 @@ def create_dataloaders(dataset_type: str, data_path: str,
         **loader_kwargs
     )
     
-    # Load dataset
-    if dataset_type == 'ecg':
-        data = loader.load_all_datasets()
-    elif dataset_type == 'psm':
+    # Load dataset - enforce single-file mode (no cross-file concatenation)
+    if dataset_type == 'psm':
+        # PSM has fixed train/test files
         data = loader.load_dataset()
     else:
-        # For other datasets, you might want to specify which specific dataset to load
-        dataset_name = kwargs.get('dataset_name', 'default')
+        if not dataset_name:
+            raise ValueError(
+                f"Single-file mode enforced: please provide --dataset_name for dataset type '{dataset_type}'."
+            )
         data = loader.load_dataset(dataset_name)
     
     # Create datasets
