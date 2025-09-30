@@ -10,3 +10,5 @@ datasets/
 srcNotebook/
 checkpoints/
 wandb
+checkpoints_ecg_max/
+checkpoints_ecg_small/

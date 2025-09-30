@@ -1528,8 +1528,11 @@ def main():
                        help='Type of dataset')
     parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets/ecg',
                        help='Path to test data')
-    parser.add_argument('--model_path', type=str, default=None,
+    parser.add_argument('--model_path', type=str, default='D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/checkpoints_ecg_max/ecg_20250930_073946/best_model.pth',
                        help='Path to model checkpoint (if None, will use checkpoints/{dataset}/best_model.pth)')
+    # Optional: specific test filename. If not provided, will try to read from config.json next to model_path
+    parser.add_argument('--dataset_name', type=str, default=None,
+                       help='Specific test filename to run (e.g., chfdb_chf01_275.pkl). If omitted, will try to read dataset_name from config.json')
     # Inference arguments
     parser.add_argument('--window_size', type=int, default=128,
                        help='Window size for sliding window (will be overridden by config if available)')
@@ -1638,12 +1641,39 @@ def main():
     # Load test data
     print(f"Loading test data from {args.data_path}")
     
+    # Try to read dataset_name from the model's config.json if CLI not provided
+    config_dataset_name = None
+    try:
+        if not args.dataset_name:
+            cfg_path = os.path.join(os.path.dirname(args.model_path), 'config.json')
+            if os.path.exists(cfg_path):
+                import json
+                with open(cfg_path, 'r') as _f:
+                    _cfg = json.load(_f)
+                    config_dataset_name = _cfg.get('dataset_name')
+                    if config_dataset_name:
+                        print(f"Using dataset_name from config.json: {config_dataset_name}")
+    except Exception as _e:
+        print(f"Warning: unable to read dataset_name from config.json: {_e}")
+    
     if args.dataset == 'ecg':
         # Load ECG data - test each file separately
         test_path = os.path.join(args.data_path, "labeled", "test")
-        # If user specifies a single file name via --dataset_name, restrict to that file
+        # Prefer CLI --dataset_name. If absent, fall back to config.json's dataset_name.
+        chosen_name = None
         if hasattr(args, 'dataset_name') and args.dataset_name:
-            test_files = [args.dataset_name] if os.path.exists(os.path.join(test_path, args.dataset_name)) else []
+            chosen_name = args.dataset_name
+        elif config_dataset_name:
+            chosen_name = config_dataset_name
+
+        if chosen_name:
+            chosen_path = os.path.join(test_path, chosen_name)
+            if os.path.exists(chosen_path):
+                test_files = [chosen_name]
+                print(f"Selected single test file: {chosen_name}")
+            else:
+                print(f"Specified dataset_name not found in test folder: {chosen_name}")
+                test_files = []
         else:
             test_files = [f for f in os.listdir(test_path) if f.endswith('.pkl')]
         
