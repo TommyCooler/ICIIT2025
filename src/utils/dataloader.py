@@ -738,14 +738,17 @@ def create_dataloaders(dataset_type: str, data_path: str,
         preprocessing=preprocessing
     )
     
-    val_dataset = BaseDataset(
-        data=data['val_data'],
-        labels=data['val_labels'],
-        window_size=window_size,
-        stride=stride,
-        normalize=False,
-        preprocessing=preprocessing
-    )
+    # Create validation dataset only if val_data exists
+    val_dataset = None
+    if 'val_data' in data:
+        val_dataset = BaseDataset(
+            data=data['val_data'],
+            labels=data['val_labels'],
+            window_size=window_size,
+            stride=stride,
+            normalize=False,
+            preprocessing=preprocessing
+        )
     
     test_dataset = BaseDataset(
         data=data['test_data'],
@@ -765,13 +768,6 @@ def create_dataloaders(dataset_type: str, data_path: str,
             num_workers=num_workers,
             pin_memory=True
         ),
-        'val': DataLoader(
-            val_dataset, 
-            batch_size=batch_size, 
-            shuffle=False, 
-            num_workers=num_workers,
-            pin_memory=True
-        ),
         'test': DataLoader(
             test_dataset, 
             batch_size=batch_size, 
@@ -780,6 +776,16 @@ def create_dataloaders(dataset_type: str, data_path: str,
             pin_memory=True
         )
     }
+    
+    # Add validation dataloader only if val_dataset exists
+    if val_dataset is not None:
+        dataloaders['val'] = DataLoader(
+            val_dataset, 
+            batch_size=batch_size, 
+            shuffle=False, 
+            num_workers=num_workers,
+            pin_memory=True
+        )
     
     return dataloaders
 
