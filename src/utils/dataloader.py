@@ -480,6 +480,97 @@ class SMAPMSLDatasetLoader:
         }
 
 
+class UCRDatasetLoader:
+    """Loader for UCR datasets (labeled time series)"""
+    
+    def __init__(self, data_path: str, normalize: bool = True, validation_ratio: float = 0.2):
+        self.data_path = data_path
+        self.normalize = normalize
+        self.validation_ratio = validation_ratio
+        
+    def load_dataset(self, dataset_name: str) -> Dict[str, Union[np.ndarray, BaseDataset]]:
+        """Load a specific UCR dataset"""
+        print(f"Loading UCR dataset: {dataset_name}")
+        
+        # UCR datasets are typically in labeled format
+        data_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}.npy"))
+        
+        print(f"  Data path: {data_path}")
+        
+        if not os.path.exists(data_path):
+            raise FileNotFoundError(f"Dataset file not found: {data_path}")
+        
+        # Load data
+        data = np.load(data_path)
+        
+        # UCR labeled data format: (time, features) or (time,)
+        if data.ndim == 1:
+            # Single feature time series
+            data = data.reshape(-1, 1).T  # Shape: (1, time)
+        elif data.ndim == 2:
+            # Multi-feature time series
+            data = data.T  # Shape: (features, time)
+        else:
+            raise ValueError(f"Unexpected data shape: {data.shape}")
+        
+        print(f"  Data shape: {data.shape}")
+        
+        # Check for NaN values
+        nan_count = np.isnan(data).sum()
+        inf_count = np.isinf(data).sum()
+        print(f"  NaN count: {nan_count}")
+        print(f"  Inf count: {inf_count}")
+        
+        if nan_count > 0:
+            print("  Handling NaN values...")
+            # Replace NaN values with forward fill
+            for i in range(data.shape[0]):
+                feature_data = data[i]
+                mask = ~np.isnan(feature_data)
+                if np.any(mask):
+                    data[i] = np.interp(
+                        np.arange(len(feature_data)),
+                        np.arange(len(feature_data))[mask],
+                        feature_data[mask]
+                    )
+                else:
+                    data[i] = 0.0
+        
+        # Normalize if required
+        if self.normalize:
+            # Global normalization to [0, 1] using data statistics
+            data_min = np.min(data)
+            data_max = np.max(data)
+            if data_max > data_min:
+                data = (data - data_min) / (data_max - data_min)
+        
+        # For UCR, we don't have separate train/test, so we split the data
+        total_time = data.shape[1]
+        train_size = int(total_time * 0.8)  # 80% for training
+        
+        train_data = data[:, :train_size]
+        test_data = data[:, train_size:]
+        
+        # Split test into validation and test sets
+        val_size = int(test_data.shape[1] * self.validation_ratio)
+        val_data = test_data[:, :val_size]
+        test_data = test_data[:, val_size:]
+        
+        # Create dummy labels for UCR (since it's unsupervised)
+        train_labels = np.zeros(train_data.shape[1])
+        val_labels = np.zeros(val_data.shape[1])
+        test_labels = np.zeros(test_data.shape[1])
+        
+        return {
+            'train_data': train_data,
+            'val_data': val_data,
+            'test_data': test_data,
+            'train_labels': train_labels,
+            'val_labels': val_labels,
+            'test_labels': test_labels
+        }
+
+
 class SMDDatasetLoader:
     """Loader for SMD datasets (npy files)"""
     
@@ -545,7 +636,7 @@ class DatasetFactory:
     @staticmethod
     def create_loader(dataset_type: str, data_path: str, **kwargs) -> Union[
         ECGDatasetLoader, PSMDatasetLoader, 
-        SMAPMSLDatasetLoader, SMDDatasetLoader
+        SMAPMSLDatasetLoader, SMDDatasetLoader, UCRDatasetLoader
     ]:
         """Create appropriate dataset loader based on dataset type"""
         
@@ -553,7 +644,8 @@ class DatasetFactory:
             'ecg': ECGDatasetLoader,
             'psm': PSMDatasetLoader,
             'smap_msl': SMAPMSLDatasetLoader,
-            'smd': SMDDatasetLoader
+            'smd': SMDDatasetLoader,
+            'ucr': UCRDatasetLoader
         }
         
         if dataset_type not in loaders:
