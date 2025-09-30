@@ -52,6 +52,19 @@ def get_dataset_files(dataset_type, config):
     """Get list of files to process for a dataset type"""
     files = []
     
+    if dataset_type == 'pd':
+        # PD: Get all .pkl files from train directory and match in test directory
+        train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
+        for train_file in train_files:
+            file_name = os.path.basename(train_file)
+            test_file = os.path.join(config['test_dir'], file_name)
+            if os.path.exists(test_file):
+                files.append({
+                    'name': file_name,
+                    'train_path': train_file,
+                    'test_path': test_file
+                })
+    
     if dataset_type == 'ecg':
         # ECG: Get all .pkl files from train directory
         train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
