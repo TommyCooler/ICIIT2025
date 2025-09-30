@@ -26,7 +26,7 @@ def parse_args():
     
     # Dataset arguments
     parser.add_argument('--dataset', type=str, default='ecg', 
-                       choices=['ecg', 'psm', 'nab', 'smap_msl', 'smd', 'ucr'],
+                       choices=['ecg', 'psm', 'smap_msl', 'smd', 'ucr'],
                        help='Type of dataset to use')
     parser.add_argument('--data_path', type=str, default='D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\datasets\ecg',
                        help='Path to dataset directory')
@@ -71,7 +71,7 @@ def parse_args():
                        help='Augmentation dropout (override; default: model dropout)')
     parser.add_argument('--aug_temperature', type=float, default=None,
                        help='Augmentation temperature (override; default: model temperature)')
-    parser.add_argument('--use_contrastive', action='store_true', default=False,
+    parser.add_argument('--use_contrastive', action='store_true', default=True,
                        help='Use contrastive learning branch')
     parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
                        help='Disable contrastive learning branch')

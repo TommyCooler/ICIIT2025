@@ -193,10 +193,12 @@ class ContrastiveModel(nn.Module):
             Contrastive loss
         """
         batch_size, seq_len, proj_dim = original_projection.shape
-        n = batch_size * seq_len
         
-        orig_flat = original_projection.view(-1, proj_dim)  # α_i
-        aug_flat = augmented_projection.view(-1, proj_dim)  # α'_i
+        # For contrastive learning, we compare entire windows (sequences)
+        # Each window is represented by its mean projection
+        orig_flat = torch.mean(original_projection, dim=1)  # (batch_size, proj_dim)
+        aug_flat = torch.mean(augmented_projection, dim=1)  # (batch_size, proj_dim)
+        n = batch_size
         
         # Normalize projections with eps for numerical stability
         orig_flat = F.normalize(orig_flat, dim=1, eps=1e-8)

@@ -31,14 +31,15 @@ DATASET_CONFIGS = {
         'test_dir': os.path.join(DATASETS_DIR, "psm"),
         'file_pattern': "train.csv",  # PSM has single train/test files
         'output_dir': os.path.join(OUTPUT_BASE, "psm")
-    },
-    'nab': {
-        'data_path': os.path.join(DATASETS_DIR, "nab"),
-        'train_dir': os.path.join(DATASETS_DIR, "nab"),
-        'test_dir': os.path.join(DATASETS_DIR, "nab"),
-        'file_pattern': "*_train.npy",
-        'output_dir': os.path.join(OUTPUT_BASE, "nab")
-    },
+    }
+    ,
+    # 'nab': {
+    #     'data_path': os.path.join(DATASETS_DIR, "nab"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "nab"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "nab"),
+    #     'file_pattern': "*_train.npy",
+    #     'output_dir': os.path.join(OUTPUT_BASE, "nab")
+    # },
     'smap_msl': {
         'data_path': os.path.join(DATASETS_DIR, "smap_msl_"),
         'processed_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
@@ -57,21 +58,22 @@ DATASET_CONFIGS = {
         'test_dir': os.path.join(DATASETS_DIR, "ucr", "labeled"),
         'file_pattern': "*_train.npy",
         'output_dir': os.path.join(OUTPUT_BASE, "ucr")
-    },
-    'wadi': {
-        'data_path': os.path.join(DATASETS_DIR, "wadi"),
-        'train_dir': os.path.join(DATASETS_DIR, "wadi"),
-        'test_dir': os.path.join(DATASETS_DIR, "wadi"),
-        'file_pattern': "*.csv",  # WADI typically has CSV files
-        'output_dir': os.path.join(OUTPUT_BASE, "wadi")
-    },
-    'swat': {
-        'data_path': os.path.join(DATASETS_DIR, "swat"),
-        'train_dir': os.path.join(DATASETS_DIR, "swat"),
-        'test_dir': os.path.join(DATASETS_DIR, "swat"),
-        'file_pattern': "*.csv",  # SWAT typically has CSV files
-        'output_dir': os.path.join(OUTPUT_BASE, "swat")
     }
+    # ,
+    # 'wadi': {
+    #     'data_path': os.path.join(DATASETS_DIR, "wadi"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "wadi"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "wadi"),
+    #     'file_pattern': "*.csv",  # WADI typically has CSV files
+    #     'output_dir': os.path.join(OUTPUT_BASE, "wadi")
+    # },
+    # 'swat': {
+    #     'data_path': os.path.join(DATASETS_DIR, "swat"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "swat"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "swat"),
+    #     'file_pattern': "*.csv",  # SWAT typically has CSV files
+    #     'output_dir': os.path.join(OUTPUT_BASE, "swat")
+    # }
 }
 
 def run_command(cmd, description=""):
@@ -122,20 +124,6 @@ def get_dataset_files(dataset_type, config):
                 'train_path': train_file,
                 'test_path': test_file
             })
-    
-    elif dataset_type == 'nab':
-        # NAB: Require train/test/labels triplets
-        train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
-        for train_file in train_files:
-            file_name = os.path.basename(train_file).replace('_train.npy', '')
-            test_file = os.path.join(config['test_dir'], f"{file_name}_test.npy")
-            labels_file = os.path.join(config['test_dir'], f"{file_name}_labels.npy")
-            if os.path.exists(test_file) and os.path.exists(labels_file):
-                files.append({
-                    'name': file_name,
-                    'train_path': train_file,
-                    'test_path': test_file
-                })
     
     elif dataset_type == 'smap_msl':
         # SMAP-MSL processed mode: iterate all *_train.npy triplets in processed dir

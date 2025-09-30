@@ -331,126 +331,47 @@ class PSMDatasetLoader:
         test_data = test_df[feature_cols].to_numpy().T
         test_labels = test_labels_df['label'].to_numpy()
         
-        # Normalize if required
-        if self.normalize:
-            # Global normalization to [0, 1] using train data statistics
-            train_min = np.min(train_data)
-            train_max = np.max(train_data)
-            if train_max > train_min:
-                train_data = (train_data - train_min) / (train_max - train_min)
-                test_data = (test_data - train_min) / (train_max - train_min)
+        # Handle NaN values before normalization
+        print(f"  Handling NaN values in PSM data...")
+        train_nan_count = np.isnan(train_data).sum()
+        test_nan_count = np.isnan(test_data).sum()
+        print(f"  Train NaN count before handling: {train_nan_count}")
+        print(f"  Test NaN count before handling: {test_nan_count}")
         
-        # Split test into validation and test sets
-        val_size = int(test_data.shape[1] * self.validation_ratio)
-        val_data = test_data[:, :val_size]
-        val_labels = test_labels[:val_size]
-        test_data = test_data[:, val_size:]
-        test_labels = test_labels[val_size:]
+        if train_nan_count > 0:
+            # Replace NaN values with forward fill, then backward fill
+            for i in range(train_data.shape[0]):  # For each feature
+                feature_data = train_data[i]
+                # Forward fill
+                mask = ~np.isnan(feature_data)
+                if np.any(mask):
+                    train_data[i] = np.interp(
+                        np.arange(len(feature_data)),
+                        np.arange(len(feature_data))[mask],
+                        feature_data[mask]
+                    )
+                else:
+                    # If all values are NaN, fill with 0
+                    train_data[i] = 0.0
         
-        return {
-            'train_data': train_data,
-            'val_data': val_data,
-            'test_data': test_data,
-            'val_labels': val_labels,
-            'test_labels': test_labels
-        }
-
-
-class NABDatasetLoader:
-    """Loader for NAB datasets (CSV + JSON labels)"""
-    
-    def __init__(self, data_path: str, normalize: bool = True, validation_ratio: float = 0.2):
-        self.data_path = data_path
-        self.normalize = normalize
-        self.validation_ratio = validation_ratio
+        if test_nan_count > 0:
+            # Replace NaN values with forward fill, then backward fill
+            for i in range(test_data.shape[0]):  # For each feature
+                feature_data = test_data[i]
+                # Forward fill
+                mask = ~np.isnan(feature_data)
+                if np.any(mask):
+                    test_data[i] = np.interp(
+                        np.arange(len(feature_data)),
+                        np.arange(len(feature_data))[mask],
+                        feature_data[mask]
+                    )
+                else:
+                    # If all values are NaN, fill with 0
+                    test_data[i] = 0.0
         
-    def load_dataset(self, dataset_name: str) -> Dict[str, Union[np.ndarray, BaseDataset]]:
-        """Load a specific NAB dataset"""
-        print(f"Loading NAB dataset: {dataset_name}")
-        
-        # Check for pre-processed files first
-        train_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_train.npy"))
-        test_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_test.npy"))
-        labels_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_labels.npy"))
-        
-        print(f"  Train path: {train_path}")
-        print(f"  Test path: {test_path}")
-        print(f"  Labels path: {labels_path}")
-        
-        if os.path.exists(train_path) and os.path.exists(test_path) and os.path.exists(labels_path):
-            # Load pre-processed data
-            print("  Loading pre-processed data...")
-            train_data = np.load(train_path).T  # Shape: [features, time]
-            test_data = np.load(test_path).T
-            test_labels = np.load(labels_path)
-            
-            # Split test into validation and test sets
-            val_size = int(test_data.shape[1] * self.validation_ratio)
-            val_data = test_data[:, :val_size]
-            val_labels = test_labels[:val_size]
-            test_data = test_data[:, val_size:]
-            test_labels = test_labels[val_size:]
-            
-        # Normalize if required
-        if self.normalize:
-            # Global normalization to [0, 1] using train data statistics
-            train_min = np.min(train_data)
-            train_max = np.max(train_data)
-            if train_max > train_min:
-                train_data = (train_data - train_min) / (train_max - train_min)
-                val_data = (val_data - train_min) / (train_max - train_min)
-                test_data = (test_data - train_min) / (train_max - train_min)
-            
-            return {
-                'train_data': train_data,
-                'val_data': val_data,
-                'test_data': test_data,
-                'val_labels': val_labels,
-                'test_labels': test_labels
-            }
-        
-        # Fallback to CSV processing
-        print("  Pre-processed files not found, processing CSV...")
-        csv_path = os.path.join(self.data_path, f"{dataset_name}.csv")
-        if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"Dataset file not found: {csv_path}")
-        
-        # Load data
-        data_df = pd.read_csv(csv_path)
-        
-        # Load labels
-        labels_json_path = os.path.join(self.data_path, "labels.json")
-        if not os.path.exists(labels_json_path):
-            raise FileNotFoundError(f"Labels file not found: {labels_json_path}")
-        
-        with open(labels_json_path, 'r') as f:
-            labels_dict = json.load(f)
-        
-        # Get anomaly timestamps for this dataset
-        anomaly_timestamps = labels_dict.get(f"realKnownCause/{dataset_name}.csv", [])
-        
-        # Create binary labels
-        data_df['timestamp'] = pd.to_datetime(data_df['timestamp'])
-        data_df['label'] = 0
-        
-        for timestamp in anomaly_timestamps:
-            anomaly_time = pd.to_datetime(timestamp)
-            # Mark points within a window around the anomaly
-            window = pd.Timedelta(hours=1)  # 1 hour window
-            mask = (data_df['timestamp'] >= anomaly_time - window) & \
-                   (data_df['timestamp'] <= anomaly_time + window)
-            data_df.loc[mask, 'label'] = 1
-        
-        # Extract features (exclude timestamp and label columns)
-        feature_cols = [col for col in data_df.columns if col not in ['timestamp', 'label']]
-        data = data_df[feature_cols].to_numpy().T  # Shape: [features, time]
-        labels = data_df['label'].to_numpy()
-        
-        # Split into train/test
-        split_idx = int(len(data_df) * 0.7)  # 70% for training
-        train_data = data[:, :split_idx]
-        test_data = data[:, split_idx:]
-        test_labels = labels[split_idx:]
+        print(f"  Train NaN count after handling: {np.isnan(train_data).sum()}")
+        print(f"  Test NaN count after handling: {np.isnan(test_data).sum()}")
         
         # Normalize if required
         if self.normalize:
