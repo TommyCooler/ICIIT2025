@@ -48,7 +48,7 @@ def parse_args():
                        help='Output dimension for TCN')
     parser.add_argument('--tcn_kernel_size', type=int, default=3,
                        help='Kernel size for TCN')
-    parser.add_argument('--tcn_num_layers', type=int, default=4,
+    parser.add_argument('--tcn_num_layers', type=int, default=3,
                        help='Number of TCN layers')
     parser.add_argument('--dropout', type=float, default=0.1,
                        help='Dropout rate')
