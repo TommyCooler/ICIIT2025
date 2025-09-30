@@ -5,12 +5,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import torch
 from typing import Dict, List, Tuple, Optional, Union
-from abc import ABC, abstractmethod
-import json
-import random
-from scipy import signal
 from scipy.stats import zscore
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
 # DataAugmentation class removed - use augmentation from src/modules/augmentation.py instead
@@ -49,44 +44,28 @@ class DataPreprocessing:
             if iqr > 0:
                 normalized_data[i] = (data[i] - median) / iqr
         return normalized_data
-    
-    @staticmethod
-    def detrend(data: np.ndarray) -> np.ndarray:
-        """Remove linear trend from the data"""
-        detrended_data = np.zeros_like(data)
-        for i in range(data.shape[0]):
-            detrended_data[i] = signal.detrend(data[i])
-        return detrended_data
-    
-    @staticmethod
-    def smooth(data: np.ndarray, window_size: int = 5) -> np.ndarray:
-        """Apply moving average smoothing"""
-        smoothed_data = np.zeros_like(data)
-        for i in range(data.shape[0]):
-            smoothed_data[i] = np.convolve(data[i], np.ones(window_size)/window_size, mode='same')
-        return smoothed_data
 
 
-class BaseDataset(Dataset, ABC):
+class BaseDataset(Dataset):
     """Base class for all dataset loaders"""
     
     def __init__(self, data: np.ndarray, labels: Optional[np.ndarray] = None, 
-                 window_size: int = 100, stride: int = 1, normalize: bool = True,
+                 window_size: int = 100, stride: int = 1,
                  preprocessing: Optional[str] = None):
         """
+        Initialize the dataset
+        
         Args:
-            data: Input time series data of shape (features, time_steps)
-            labels: Anomaly labels of shape (time_steps,)
+            data: Input data with shape (features, time)
+            labels: Optional labels for anomaly detection
             window_size: Size of sliding window
-            stride: Step size for sliding window
-            normalize: Whether to normalize the data
-            preprocessing: Type of preprocessing ('zscore', 'minmax', 'robust', 'detrend', 'smooth')
+            stride: Step size for sliding window  
+            preprocessing: Type of preprocessing to apply
         """
         self.data = data
         self.labels = labels
         self.window_size = window_size
         self.stride = stride
-        self.normalize = normalize
         self.preprocessing = preprocessing
         
         # Apply preprocessing
@@ -107,18 +86,7 @@ class BaseDataset(Dataset, ABC):
             self.data = DataPreprocessing.min_max_normalize(self.data)
         elif self.preprocessing == 'robust':
             self.data = DataPreprocessing.robust_normalize(self.data)
-        elif self.preprocessing == 'detrend':
-            self.data = DataPreprocessing.detrend(self.data)
-        elif self.preprocessing == 'smooth':
-            self.data = DataPreprocessing.smooth(self.data)
         
-    def _normalize_data(self):
-        """Normalize data to [0, 1] range globally"""
-        data_min = np.min(self.data)
-        data_max = np.max(self.data)
-        if data_max > data_min:
-            self.data = (self.data - data_min) / (data_max - data_min)
-    
 # Augmentation is now handled by the contrastive model, not in dataloader
     
     def __len__(self):
@@ -783,7 +751,7 @@ def create_dataloaders(dataset_type: str, data_path: str,
         num_workers: Number of worker processes
         normalize: Whether to normalize data
         validation_ratio: Ratio of test data to use for validation
-        preprocessing: Type of preprocessing ('zscore', 'minmax', 'robust', 'detrend', 'smooth')
+        preprocessing: Type of preprocessing ('zscore', 'minmax', 'robust')
         dataset_name: Specific dataset name (for nab, smap_msl, smd)
         **kwargs: Additional arguments for specific dataset loaders
     
@@ -819,7 +787,6 @@ def create_dataloaders(dataset_type: str, data_path: str,
         labels=None,  # No labels for training (unsupervised)
         window_size=window_size,
         stride=stride,
-        normalize=False,  # Already normalized by loader
         preprocessing=preprocessing
     )
     
@@ -831,7 +798,6 @@ def create_dataloaders(dataset_type: str, data_path: str,
             labels=data['val_labels'],
             window_size=window_size,
             stride=stride,
-            normalize=False,
             preprocessing=preprocessing
         )
     
@@ -840,7 +806,6 @@ def create_dataloaders(dataset_type: str, data_path: str,
         labels=data['test_labels'],
         window_size=window_size,
         stride=stride,
-        normalize=False,
         preprocessing=preprocessing
     )
     
