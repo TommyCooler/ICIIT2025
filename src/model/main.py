@@ -216,6 +216,8 @@ def get_input_dim(dataset: str, data_path: str = None) -> int:
     
     # Fallback to default dimensions
     dims = {
+        'gesture': 2,
+        'pd': 1,
         'ecg': 2,   # ECG standardized to 2 features
         'psm': 25,
         'nab': 1,
