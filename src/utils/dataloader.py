@@ -72,9 +72,6 @@ class BaseDataset(Dataset):
         if self.preprocessing:
             self._apply_preprocessing()
         
-        if self.normalize:
-            self._normalize_data()
-        
         # Calculate number of samples
         self.n_samples = (self.data.shape[1] - self.window_size) // self.stride + 1
         
