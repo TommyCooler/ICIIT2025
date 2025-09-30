@@ -492,81 +492,105 @@ class UCRDatasetLoader:
         """Load a specific UCR dataset"""
         print(f"Loading UCR dataset: {dataset_name}")
         
-        # UCR datasets are typically in labeled format
-        data_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}.npy"))
+        # UCR datasets have format: {dataset_name}_labels.npy, {dataset_name}_train.npy, {dataset_name}_test.npy
+        labels_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_labels.npy"))
+        train_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_train.npy"))
+        test_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_test.npy"))
         
-        print(f"  Data path: {data_path}")
+        print(f"  Labels path: {labels_path}")
+        print(f"  Train path: {train_path}")
+        print(f"  Test path: {test_path}")
         
-        if not os.path.exists(data_path):
-            raise FileNotFoundError(f"Dataset file not found: {data_path}")
+        # Check if all files exist
+        if not os.path.exists(labels_path):
+            raise FileNotFoundError(f"Labels file not found: {labels_path}")
+        if not os.path.exists(train_path):
+            raise FileNotFoundError(f"Train file not found: {train_path}")
+        if not os.path.exists(test_path):
+            raise FileNotFoundError(f"Test file not found: {test_path}")
         
         # Load data
-        data = np.load(data_path)
+        train_data = np.load(train_path)
+        test_data = np.load(test_path)
+        labels = np.load(labels_path)
         
-        # UCR labeled data format: (time, features) or (time,)
-        if data.ndim == 1:
+        # UCR data format: (time, features) or (time,)
+        if train_data.ndim == 1:
             # Single feature time series
-            data = data.reshape(-1, 1).T  # Shape: (1, time)
-        elif data.ndim == 2:
+            train_data = train_data.reshape(-1, 1).T  # Shape: (1, time)
+            test_data = test_data.reshape(-1, 1).T
+        elif train_data.ndim == 2:
             # Multi-feature time series
-            data = data.T  # Shape: (features, time)
+            train_data = train_data.T  # Shape: (features, time)
+            test_data = test_data.T
         else:
-            raise ValueError(f"Unexpected data shape: {data.shape}")
+            raise ValueError(f"Unexpected train data shape: {train_data.shape}")
         
-        print(f"  Data shape: {data.shape}")
+        print(f"  Train data shape: {train_data.shape}")
+        print(f"  Test data shape: {test_data.shape}")
+        print(f"  Labels shape: {labels.shape}")
         
-        # Check for NaN values
-        nan_count = np.isnan(data).sum()
-        inf_count = np.isinf(data).sum()
-        print(f"  NaN count: {nan_count}")
-        print(f"  Inf count: {inf_count}")
+        # Check for NaN values in train data
+        train_nan_count = np.isnan(train_data).sum()
+        train_inf_count = np.isinf(train_data).sum()
+        print(f"  Train NaN count: {train_nan_count}")
+        print(f"  Train Inf count: {train_inf_count}")
         
-        if nan_count > 0:
-            print("  Handling NaN values...")
+        if train_nan_count > 0:
+            print("  Handling NaN values in train data...")
             # Replace NaN values with forward fill
-            for i in range(data.shape[0]):
-                feature_data = data[i]
+            for i in range(train_data.shape[0]):
+                feature_data = train_data[i]
                 mask = ~np.isnan(feature_data)
                 if np.any(mask):
-                    data[i] = np.interp(
+                    train_data[i] = np.interp(
                         np.arange(len(feature_data)),
                         np.arange(len(feature_data))[mask],
                         feature_data[mask]
                     )
                 else:
-                    data[i] = 0.0
+                    train_data[i] = 0.0
+        
+        # Check for NaN values in test data
+        test_nan_count = np.isnan(test_data).sum()
+        test_inf_count = np.isinf(test_data).sum()
+        print(f"  Test NaN count: {test_nan_count}")
+        print(f"  Test Inf count: {test_inf_count}")
+        
+        if test_nan_count > 0:
+            print("  Handling NaN values in test data...")
+            # Replace NaN values with forward fill
+            for i in range(test_data.shape[0]):
+                feature_data = test_data[i]
+                mask = ~np.isnan(feature_data)
+                if np.any(mask):
+                    test_data[i] = np.interp(
+                        np.arange(len(feature_data)),
+                        np.arange(len(feature_data))[mask],
+                        feature_data[mask]
+                    )
+                else:
+                    test_data[i] = 0.0
         
         # Normalize if required
         if self.normalize:
-            # Global normalization to [0, 1] using data statistics
-            data_min = np.min(data)
-            data_max = np.max(data)
-            if data_max > data_min:
-                data = (data - data_min) / (data_max - data_min)
+            # Global normalization to [0, 1] using train data statistics
+            train_min = np.min(train_data)
+            train_max = np.max(train_data)
+            if train_max > train_min:
+                train_data = (train_data - train_min) / (train_max - train_min)
+                test_data = (test_data - train_min) / (train_max - train_min)
         
-        # For UCR, we don't have separate train/test, so we split the data
-        total_time = data.shape[1]
-        train_size = int(total_time * 0.8)  # 80% for training
+        # No validation split - use all test data as test set
+        test_labels = labels
         
-        train_data = data[:, :train_size]
-        test_data = data[:, train_size:]
-        
-        # Split test into validation and test sets
-        val_size = int(test_data.shape[1] * self.validation_ratio)
-        val_data = test_data[:, :val_size]
-        test_data = test_data[:, val_size:]
-        
-        # Create dummy labels for UCR (since it's unsupervised)
+        # Train data is all normal (no anomalies) - create zeros labels
         train_labels = np.zeros(train_data.shape[1])
-        val_labels = np.zeros(val_data.shape[1])
-        test_labels = np.zeros(test_data.shape[1])
         
         return {
             'train_data': train_data,
-            'val_data': val_data,
             'test_data': test_data,
             'train_labels': train_labels,
-            'val_labels': val_labels,
             'test_labels': test_labels
         }
 
