@@ -26,7 +26,7 @@ def parse_args():
     
     # Dataset arguments
     parser.add_argument('--dataset', type=str, default='ecg', 
-                       choices=['ecg', 'psm', 'smap_msl', 'smd', 'ucr'],
+                       choices=['ecg', 'pd', 'psm', 'smap_msl', 'smd', 'ucr'],
                        help='Type of dataset to use')
     parser.add_argument('--data_path', type=str, default='D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\datasets\ecg',
                        help='Path to dataset directory')

@@ -666,6 +666,7 @@ class DatasetFactory:
         
         loaders = {
             'ecg': ECGDatasetLoader,
+            'pd': ECGDatasetLoader,
             'psm': PSMDatasetLoader,
             'smap_msl': SMAPMSLDatasetLoader,
             'smd': SMDDatasetLoader,
