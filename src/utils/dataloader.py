@@ -230,6 +230,87 @@ class ECGDatasetLoader:
             'val_labels': val_labels,
             'test_labels': test_labels
         }
+
+
+class PDDatasetLoader:
+    """Loader for PD datasets (pkl files, single feature)"""
+    
+    def __init__(self, data_path: str, normalize: bool = True, validation_ratio: float = 0.2):
+        self.data_path = data_path
+        self.normalize = normalize
+        self.validation_ratio = validation_ratio
+    
+    def load_dataset(self, dataset_name: str) -> Dict[str, Union[np.ndarray, BaseDataset]]:
+        """Load a specific PD dataset as 1D feature time series"""
+        # Paths
+        train_path = os.path.normpath(os.path.join(self.data_path, "labeled", "train", dataset_name))
+        test_path = os.path.normpath(os.path.join(self.data_path, "labeled", "test", dataset_name))
+        
+        if not os.path.exists(train_path):
+            raise FileNotFoundError(f"Train file not found: {train_path}")
+        if not os.path.exists(test_path):
+            raise FileNotFoundError(f"Test file not found: {test_path}")
+        
+        # Load
+        with open(train_path, 'rb') as f:
+            train_data_raw = pickle.load(f)
+        with open(test_path, 'rb') as f:
+            test_data_raw = pickle.load(f)
+        
+        if isinstance(train_data_raw, list):
+            train_data_raw = np.array(train_data_raw)
+        if isinstance(test_data_raw, list):
+            test_data_raw = np.array(test_data_raw)
+        
+        # Ensure shape (features, time)
+        if train_data_raw.ndim == 1:
+            # Single vector -> (1, T)
+            train_data_raw = train_data_raw.reshape(1, -1)
+        if test_data_raw.ndim == 1:
+            test_data_raw = test_data_raw.reshape(1, -1)
+        if train_data_raw.shape[0] > train_data_raw.shape[1]:
+            train_data_raw = train_data_raw.T
+        if test_data_raw.shape[0] > test_data_raw.shape[1]:
+            test_data_raw = test_data_raw.T
+        
+        # Extract single feature and labels if present
+        # If there are at least 2 rows and the second row looks like labels (0/1), use it
+        train_feature = train_data_raw[0:1, :]
+        test_feature = test_data_raw[0:1, :]
+        test_labels = None
+        if test_data_raw.shape[0] >= 2:
+            candidate = test_data_raw[1, :]
+            unique_vals = np.unique(candidate)
+            if unique_vals.size <= 3 and np.all(np.isin(unique_vals, [0, 1])):
+                test_labels = candidate
+        if test_labels is None:
+            test_labels = np.zeros(test_feature.shape[1])
+            print(f"PD dataset {dataset_name}: No labels detected, using dummy labels")
+        
+        # Normalize using train stats
+        if self.normalize:
+            train_min = np.min(train_feature)
+            train_max = np.max(train_feature)
+            if train_max > train_min:
+                train_feature = (train_feature - train_min) / (train_max - train_min)
+                test_feature = (test_feature - train_min) / (train_max - train_min)
+        
+        # Split validation from test
+        val_size = int(test_feature.shape[1] * self.validation_ratio)
+        val_data = test_feature[:, :val_size]
+        val_labels = test_labels[:val_size]
+        test_data = test_feature[:, val_size:]
+        test_labels = test_labels[val_size:]
+        
+        print(f"PD dataset {dataset_name}: 1 feature, train {train_feature.shape[1]} timesteps, test {test_data.shape[1]} timesteps")
+        
+        return {
+            'train_data': train_feature,
+            'val_data': val_data,
+            'test_data': test_data,
+            'val_labels': val_labels,
+            'test_labels': test_labels
+        }
     
     def load_all_datasets(self) -> Dict[str, Union[np.ndarray, BaseDataset]]:
         """Load all ECG datasets and combine them"""
@@ -667,7 +748,7 @@ class DatasetFactory:
         loaders = {
             'ecg': ECGDatasetLoader,
             'gesture': ECGDatasetLoader,
-            'pd': ECGDatasetLoader,
+            'pd': PDDatasetLoader,
             'psm': PSMDatasetLoader,
             'smap_msl': SMAPMSLDatasetLoader,
             'smd': SMDDatasetLoader,
