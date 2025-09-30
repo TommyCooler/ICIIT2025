@@ -574,9 +574,11 @@ class UCRDatasetLoader:
         print(f"Loading UCR dataset: {dataset_name}")
         
         # UCR datasets have format: {dataset_name}_labels.npy, {dataset_name}_train.npy, {dataset_name}_test.npy
-        labels_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_labels.npy"))
-        train_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_train.npy"))
-        test_path = os.path.normpath(os.path.join(self.data_path, f"{dataset_name}_test.npy"))
+        # Files are located in the 'labeled' subdirectory
+        labeled_path = os.path.join(self.data_path, "labeled")
+        labels_path = os.path.normpath(os.path.join(labeled_path, f"{dataset_name}_labels.npy"))
+        train_path = os.path.normpath(os.path.join(labeled_path, f"{dataset_name}_train.npy"))
+        test_path = os.path.normpath(os.path.join(labeled_path, f"{dataset_name}_test.npy"))
         
         print(f"  Labels path: {labels_path}")
         print(f"  Train path: {train_path}")

@@ -1528,7 +1528,7 @@ def main():
                        help='Type of dataset')
     parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets/ucr/labeled',
                        help='Path to test data')
-    parser.add_argument('--model_path', type=str, default='D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/checkpoints_ucr_max/ucr_20250930_050118/best_model.pth',
+    parser.add_argument('--model_path', type=str, default='D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/checkpoints_ucr_min/ucr_20250930_095035/best_model.pth',
                        help='Path to model checkpoint (if None, will use checkpoints/{dataset}/best_model.pth)')
     # Optional: specific test filename. If not provided, will try to read from config.json next to model_path
     parser.add_argument('--dataset_name', type=str, default=None,
