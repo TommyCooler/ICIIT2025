@@ -544,7 +544,7 @@ class DatasetFactory:
     
     @staticmethod
     def create_loader(dataset_type: str, data_path: str, **kwargs) -> Union[
-        ECGDatasetLoader, PSMDatasetLoader, NABDatasetLoader, 
+        ECGDatasetLoader, PSMDatasetLoader, 
         SMAPMSLDatasetLoader, SMDDatasetLoader
     ]:
         """Create appropriate dataset loader based on dataset type"""
@@ -552,7 +552,6 @@ class DatasetFactory:
         loaders = {
             'ecg': ECGDatasetLoader,
             'psm': PSMDatasetLoader,
-            'nab': NABDatasetLoader,
             'smap_msl': SMAPMSLDatasetLoader,
             'smd': SMDDatasetLoader
         }
@@ -691,16 +690,16 @@ if __name__ == "__main__":
         preprocessing='minmax'
     )
     
-    # Example for NAB dataset
-    nab_dataloaders = create_dataloaders(
-        dataset_type='nab',
-        data_path='datasets\\nab',
-        dataset_name='ambient_temperature_system_failure',
-        window_size=100,
-        stride=1,
-        batch_size=32,
-        preprocessing='robust'
-    )
+    # # Example for NAB dataset
+    # nab_dataloaders = create_dataloaders(
+    #     dataset_type='nab',
+    #     data_path='datasets\\nab',
+    #     dataset_name='ambient_temperature_system_failure',
+    #     window_size=100,
+    #     stride=1,
+    #     batch_size=32,
+    #     preprocessing='robust'
+    # )
     
     print("Dataloaders created successfully!")
     print(f"ECG Train batches: {len(ecg_dataloaders['train'])}")
