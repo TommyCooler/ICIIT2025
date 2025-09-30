@@ -1523,12 +1523,12 @@ def main():
     parser = argparse.ArgumentParser(description='Contrastive Learning Model Inference')
     
     # Model arguments
-    parser.add_argument('--dataset', type=str, default='ecg',
+    parser.add_argument('--dataset', type=str, default='ucr',
                        choices=['ecg', 'psm', 'nab', 'smap_msl', 'smd'],
                        help='Type of dataset')
-    parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets/ecg',
+    parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets/ucr/labeled',
                        help='Path to test data')
-    parser.add_argument('--model_path', type=str, default='D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/checkpoints_ecg_max/ecg_20250930_073946/best_model.pth',
+    parser.add_argument('--model_path', type=str, default='D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/checkpoints_ucr_max/ucr_20250930_050118/best_model.pth',
                        help='Path to model checkpoint (if None, will use checkpoints/{dataset}/best_model.pth)')
     # Optional: specific test filename. If not provided, will try to read from config.json next to model_path
     parser.add_argument('--dataset_name', type=str, default=None,
@@ -1952,6 +1952,7 @@ def main():
             dataset_type=args.dataset,
             data_path=args.data_path,
             window_size=args.window_size,
+            dataset_name=(args.dataset_name if hasattr(args, 'dataset_name') and args.dataset_name else config_dataset_name),
             batch_size=1,
             num_workers=0
         )
