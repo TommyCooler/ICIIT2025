@@ -19,11 +19,11 @@ class LinearAugmentation(nn.Module):
             # For 2D input, we need to handle it as (seq_len, input_dim)
             # Add batch dimension and process
             x = x.unsqueeze(0)  # (1, seq_len, input_dim)
-            result = self.dropout(F.relu(self.linear(x)))
+            result = self.dropout(F.gelu(self.linear(x)))
             return result.squeeze(0)  # (seq_len, output_dim)
         else:
             # x shape: (batch_size, seq_len, input_dim)
-            return self.dropout(F.relu(self.linear(x)))
+            return self.dropout(F.gelu(self.linear(x)))
 
 
 class CNNAugmentation(nn.Module):
@@ -40,7 +40,7 @@ class CNNAugmentation(nn.Module):
             x = x.unsqueeze(0)  # (1, seq_len, input_dim)
             x = x.transpose(1, 2)  # (1, input_dim, seq_len)
             x = self.conv(x)
-            x = F.relu(x)
+            x = F.gelu(x)
             x = self.dropout(x)
             result = x.transpose(1, 2)  # (1, seq_len, output_dim)
             return result.squeeze(0)  # (seq_len, output_dim)
@@ -48,7 +48,7 @@ class CNNAugmentation(nn.Module):
             # x shape: (batch_size, seq_len, input_dim)
             x = x.transpose(1, 2)  # (batch_size, input_dim, seq_len)
             x = self.conv(x)
-            x = F.relu(x)
+            x = F.gelu(x)
             x = self.dropout(x)
             return x.transpose(1, 2)  # (batch_size, seq_len, output_dim)
 
@@ -62,7 +62,7 @@ class TCNAugmentation(nn.Module):
         in_ch = input_dim
         for _ in range(max(1, int(num_layers))):
             layers.append(nn.Conv1d(in_ch, output_dim, kernel_size, padding=kernel_size//2, dilation=1))
-            layers.append(nn.ReLU())
+            layers.append(nn.GELU())
             layers.append(nn.Dropout(dropout))
             in_ch = output_dim
         self.net = nn.Sequential(*layers)
@@ -107,6 +107,10 @@ class EncoderTransformerAugmentation(nn.Module):
     def __init__(self, input_dim, output_dim, nhead=8, num_layers=1, dropout=0.1):
         super(EncoderTransformerAugmentation, self).__init__()
         
+        # For small input dimensions, use smaller nhead to avoid issues
+        if input_dim < nhead:
+            nhead = max(1, input_dim)  # Use input_dim as nhead if smaller
+        
         # Ensure output_dim is divisible by nhead
         if output_dim % nhead != 0:
             output_dim = ((output_dim + nhead - 1) // nhead) * nhead
@@ -118,7 +122,7 @@ class EncoderTransformerAugmentation(nn.Module):
         encoder_layer = TransformerEncoderLayer(
             d_model=output_dim,
             nhead=nhead,
-            dim_feedforward=output_dim * 4,
+            dim_feedforward=max(output_dim * 4, 64),  # Minimum 64 for dim_feedforward
             dropout=dropout,
             batch_first=True
         )
@@ -143,12 +147,26 @@ class EncoderTransformerAugmentation(nn.Module):
 
 
 class Augmentation(nn.Module):
-    """Main augmentation class that combines all nonlinear modules"""
+    """
+    Main augmentation class that combines all nonlinear modules
+    
+    Supports various input dimensions:
+    - gesture: 2 features (x, y coordinates)
+    - pd: 1 feature (univariate time series)
+    - ecg: 2 features (2-lead ECG)
+    - psm: 25 features (multivariate sensors)
+    - nab: 1 feature (univariate time series)
+    - smap_msl: 25 features (multivariate sensors)
+    - smd: 38 features (multivariate sensors)
+    - ucr: 1 feature (univariate time series)
+    """
     def __init__(self, input_dim, output_dim, dropout=0.1, temperature=1.0, **kwargs):
         super(Augmentation, self).__init__()
         
-        # Get nhead for transformer
+        # Get nhead for transformer - adjust for small input dimensions
         nhead = kwargs.get('nhead', 8)
+        if input_dim < nhead:
+            nhead = max(1, input_dim)  # Use input_dim as nhead if smaller
         
         # Temperature parameter for softmax (tau)
         self.temperature = temperature

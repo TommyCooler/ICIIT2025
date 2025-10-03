@@ -47,7 +47,7 @@ class TCNBlock(nn.Module):
                     padding=(kernel_size-1)*dilation, 
                     dilation=dilation
                 ),
-                nn.ReLU(),
+                nn.GELU(),
                 nn.Dropout(dropout)
             ])
         
@@ -66,9 +66,9 @@ class TCNBlock(nn.Module):
         x = x.transpose(1, 2)
         
         # Apply TCN layers
-        for i in range(0, len(self.tcn_layers), 3):  # Every 3 layers (Conv1d, ReLU, Dropout)
+        for i in range(0, len(self.tcn_layers), 3):  # Every 3 layers (Conv1d, GELU, Dropout)
             conv = self.tcn_layers[i]
-            relu = self.tcn_layers[i + 1]
+            gelu = self.tcn_layers[i + 1]
             dropout = self.tcn_layers[i + 2]
             
             # Calculate padding to crop
@@ -79,7 +79,7 @@ class TCNBlock(nn.Module):
             # Crop to maintain sequence length
             if padding > 0:
                 x = x[:, :, :-padding]
-            x = relu(x)
+            x = gelu(x)
             x = dropout(x)
         
         # Transpose back: (batch_size, seq_len, output_dim)

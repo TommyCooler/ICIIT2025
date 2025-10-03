@@ -218,12 +218,12 @@ def get_input_dim(dataset: str, data_path: str = None) -> int:
     dims = {
         'gesture': 2,
         'pd': 1,
-        'ecg': 2,   # ECG standardized to 2 features
+        'ecg': 2,
         'psm': 25,
         'nab': 1,
         'smap_msl': 25,
         'smd': 38,
-        'ucr': 1    # UCR labeled arrays are (time,) so feature dim is 1
+        'ucr': 1
     }
     return dims.get(dataset, 2)
 
