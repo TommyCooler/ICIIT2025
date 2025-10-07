@@ -19,7 +19,7 @@ OUTPUT_BASE = os.path.join(BASE, "src", "inference", "inference_results")
 # Dataset configurations
 DATASET_CONFIGS = {
     'ucr': {
-        'data_path': os.path.join(DATASETS_DIR, "ucr"),
+        'data_path': os.path.join(DATASETS_DIR, "ucr", "labeled"),
         'train_dir': os.path.join(DATASETS_DIR, "ucr", "labeled"),
         'test_dir': os.path.join(DATASETS_DIR, "ucr", "labeled"),
         'file_pattern': "*_train.npy",

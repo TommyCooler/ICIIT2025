@@ -116,8 +116,8 @@ def get_dataset_paths(dataset_type: str, base_data_path: str) -> Dict[str, str]:
             'file_pattern': '*_test.npy'
         },
         'ucr': {
-            'test_path': os.path.join(base_data_path, 'ucr', 'labeled'),
-            'train_path': os.path.join(base_data_path, 'ucr', 'labeled'),
+            'test_path': os.path.join(base_data_path, 'labeled'),
+            'train_path': os.path.join(base_data_path, 'labeled'),
             'file_pattern': '*_test.npy'
         },
         'gesture': {
@@ -1041,7 +1041,7 @@ def main():
                        help='Type of dataset')
     parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets',
                        help='Base path to datasets directory')
-    parser.add_argument('--model_path', type=str, default='D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\checkpoints_pd_min\pd_20250930_103524\best_model.pth',
+    parser.add_argument('--model_path', type=str, default=r'D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\checkpoints_pd_min\pd_20250930_103524\best_model.pth',
                        help='Path to model checkpoint (if None, will use checkpoints/{dataset}/best_model.pth)')
     # Optional: specific test filename. If not provided, will try to read from config.json next to model_path
     parser.add_argument('--dataset_name', type=str, default=None,
@@ -1162,6 +1162,14 @@ def main():
         if args.dataset in ['psm']:
             test_file = os.path.join(dataset_paths['test_path'], args.dataset_name)
         else:
+            # Add appropriate file extension based on dataset type
+            if args.dataset in ['ecg', 'pd', 'gesture']:
+                if not args.dataset_name.endswith('.pkl'):
+                    args.dataset_name += '.pkl'
+            elif args.dataset in ['nab', 'smap_msl', 'smd', 'ucr']:
+                if not args.dataset_name.endswith('_test.npy'):
+                    args.dataset_name += '_test.npy'
+            
             test_file = os.path.join(dataset_paths['test_path'], args.dataset_name)
         
         if not os.path.exists(test_file):
