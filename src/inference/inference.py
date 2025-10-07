@@ -7,19 +7,18 @@ Tests the model on test data with sliding window and visualizes results
 import torch
 import torch.nn as nn
 import numpy as np
-# import matplotlib.pyplot as plt  # DISABLED: No plotting for automation
 import os
 import sys
 import argparse
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple
 import pickle
 import pandas as pd
+import matplotlib.pyplot as plt
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from model.contrastive_model import ContrastiveModel
-from utils.dataloader import create_dataloaders
 
 
 def adjustment(gt, pred):
@@ -72,6 +71,63 @@ def binary_classification_metrics(y_true, y_pred, zero_division=0.0):
     accuracy  = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0.0
 
     return accuracy, precision, recall, f1, (tp, fp, fn, tn)
+
+
+def get_dataset_paths(dataset_type: str, base_data_path: str) -> Dict[str, str]:
+    """
+    Get dataset-specific paths based on dataset type
+    
+    Args:
+        dataset_type: Type of dataset (ecg, pd, psm, nab, smap_msl, smd, ucr, gesture)
+        base_data_path: Base path to datasets directory
+    
+    Returns:
+        Dictionary with dataset-specific paths
+    """
+    dataset_paths = {
+        'ecg': {
+            'test_path': os.path.join(base_data_path, 'ecg', 'labeled', 'test'),
+            'train_path': os.path.join(base_data_path, 'ecg', 'labeled', 'train'),
+            'file_pattern': '*.pkl'
+        },
+        'pd': {
+            'test_path': os.path.join(base_data_path, 'pd', 'labeled', 'test'),
+            'train_path': os.path.join(base_data_path, 'pd', 'labeled', 'train'),
+            'file_pattern': '*.pkl'
+        },
+        'psm': {
+            'test_path': os.path.join(base_data_path, 'psm'),
+            'train_path': os.path.join(base_data_path, 'psm'),
+            'file_pattern': 'test.csv'
+        },
+        'nab': {
+            'test_path': os.path.join(base_data_path, 'nab'),
+            'train_path': os.path.join(base_data_path, 'nab'),
+            'file_pattern': '*_test.npy'
+        },
+        'smap_msl': {
+            'test_path': os.path.join(base_data_path, 'smap_msl_', 'processed'),
+            'train_path': os.path.join(base_data_path, 'smap_msl_', 'processed'),
+            'file_pattern': '*_test.npy'
+        },
+        'smd': {
+            'test_path': os.path.join(base_data_path, 'smd', 'processed'),
+            'train_path': os.path.join(base_data_path, 'smd', 'processed'),
+            'file_pattern': '*_test.npy'
+        },
+        'ucr': {
+            'test_path': os.path.join(base_data_path, 'ucr', 'labeled'),
+            'train_path': os.path.join(base_data_path, 'ucr', 'labeled'),
+            'file_pattern': '*_test.npy'
+        },
+        'gesture': {
+            'test_path': os.path.join(base_data_path, 'gesture', 'labeled', 'test'),
+            'train_path': os.path.join(base_data_path, 'gesture', 'labeled', 'train'),
+            'file_pattern': '*.pkl'
+        }
+    }
+    
+    return dataset_paths.get(dataset_type, dataset_paths['ecg'])
 
 
 class ContrastiveInference:
@@ -133,7 +189,6 @@ class ContrastiveInference:
             if 'aug_tcn_num_layers' in config and config['aug_tcn_num_layers'] is not None:
                 self.aug_kwargs['tcn_num_layers'] = config.get('aug_tcn_num_layers')
             if 'aug_dropout' in config and config['aug_dropout'] is not None:
-                # Augmentation dropout overrides model dropout
                 dropout = config.get('aug_dropout', dropout)
             if 'aug_temperature' in config and config['aug_temperature'] is not None:
                 temperature = config.get('aug_temperature', temperature)
@@ -149,11 +204,28 @@ class ContrastiveInference:
             self.mask_seed = config.get('mask_seed', None)
             self.device_name = config.get('device', 'cuda')
             self.seed = config.get('seed', 42)
+            # Load additional training parameters
+            self.num_epochs = config.get('num_epochs', 100)
+            self.use_lr_scheduler = config.get('use_lr_scheduler', True)
+            self.scheduler_type = config.get('scheduler_type', 'cosine')
+            self.scheduler_params = config.get('scheduler_params', {})
+            self.use_wandb = config.get('use_wandb', True)
+            self.project_name = config.get('project_name', 'contrastive-learning')
+            self.experiment_name = config.get('experiment_name', None)
+            # Load dataset-specific parameters
+            self.dataset_name = config.get('dataset_name', None)
+            self.data_path = config.get('data_path', None)
             print(f"Config loaded from {config_path}")
             print(f"Using input_dim: {self.input_dim}")
             print(f"Using window_size: {self.window_size}")
             print(f"Using batch_size: {self.batch_size}")
             print(f"Using contrastive: {use_contrastive}")
+            print(f"Using learning_rate: {self.learning_rate}")
+            print(f"Using contrastive_weight: {self.contrastive_weight}")
+            print(f"Using reconstruction_weight: {self.reconstruction_weight}")
+            print(f"Using mask_mode: {self.mask_mode}")
+            print(f"Using mask_ratio: {self.mask_ratio}")
+            print(f"Using seed: {self.seed}")
         else:
             # Fallback: try to get from checkpoint
             self.input_dim = checkpoint.get('input_dim', 2)
@@ -186,11 +258,28 @@ class ContrastiveInference:
             self.mask_seed = checkpoint.get('mask_seed', None)
             self.device_name = checkpoint.get('device', 'cuda')
             self.seed = checkpoint.get('seed', 42)
+            # Load additional training parameters from checkpoint
+            self.num_epochs = checkpoint.get('num_epochs', 100)
+            self.use_lr_scheduler = checkpoint.get('use_lr_scheduler', True)
+            self.scheduler_type = checkpoint.get('scheduler_type', 'cosine')
+            self.scheduler_params = checkpoint.get('scheduler_params', {})
+            self.use_wandb = checkpoint.get('use_wandb', True)
+            self.project_name = checkpoint.get('project_name', 'contrastive-learning')
+            self.experiment_name = checkpoint.get('experiment_name', None)
+            # Load dataset-specific parameters from checkpoint
+            self.dataset_name = checkpoint.get('dataset_name', None)
+            self.data_path = checkpoint.get('data_path', None)
             print("Config file not found, using checkpoint defaults")
-            print(f"Using input_dim: {self.input_dim} (overridden for ECG)")
+            print(f"Using input_dim: {self.input_dim}")
             print(f"Using window_size: {self.window_size}")
             print(f"Using batch_size: {self.batch_size}")
             print(f"Using contrastive: {use_contrastive}")
+            print(f"Using learning_rate: {self.learning_rate}")
+            print(f"Using contrastive_weight: {self.contrastive_weight}")
+            print(f"Using reconstruction_weight: {self.reconstruction_weight}")
+            print(f"Using mask_mode: {self.mask_mode}")
+            print(f"Using mask_ratio: {self.mask_ratio}")
+            print(f"Using seed: {self.seed}")
         
         # Create model
         self.model = ContrastiveModel(
@@ -209,21 +298,15 @@ class ContrastiveInference:
             augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
         )
         
-        # Load state dict with backward-compat mapping for augmentation TCN
+        # Load state dict - expect exact match with current model architecture
         state_dict = checkpoint['model_state_dict']
-        mapped_state_dict = {}
-        for k, v in state_dict.items():
-            # Map old single-layer conv names to new stacked net.0.* names
-            if k.startswith('augmentation.tcn_module.conv.'):
-                new_k = k.replace('augmentation.tcn_module.conv.', 'augmentation.tcn_module.net.0.')
-                mapped_state_dict[new_k] = v
-            else:
-                mapped_state_dict[k] = v
-        missing, unexpected = self.model.load_state_dict(mapped_state_dict, strict=False)
+        missing, unexpected = self.model.load_state_dict(state_dict, strict=True)
         if missing:
-            print(f"Warning: Missing keys when loading state_dict: {missing}")
+            print(f"Error: Missing keys when loading state_dict: {missing}")
+            raise ValueError(f"Model checkpoint is incompatible with current architecture. Missing keys: {missing}")
         if unexpected:
             print(f"Warning: Unexpected keys when loading state_dict: {unexpected}")
+            print("These keys will be ignored.")
         self.model.to(self.device)
         self.model.eval()
         
@@ -233,47 +316,146 @@ class ContrastiveInference:
         print(f"Batch size: {self.batch_size}")
         print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
     
-    def sliding_window_inference(self, data: np.ndarray, window_size: int, stride: int = 1, batch_size: int = 32) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def load_pickle_data(self, file_path: str) -> Tuple[np.ndarray, np.ndarray]:
+        """Load data from pickle file (ECG, PD, Gesture datasets)"""
+        try:
+            with open(file_path, 'rb') as f:
+                data = pickle.load(f)
+            
+            if isinstance(data, dict):
+                test_data = data.get('test_data', data.get('data'))
+                labels = data.get('test_labels', data.get('labels'))
+            elif isinstance(data, tuple) and len(data) == 2:
+                test_data, labels = data
+            else:
+                test_data = data
+                labels = None
+            
+            return test_data, labels
+        except Exception as e:
+            print(f"Error loading pickle data from {file_path}: {e}")
+            return None, None
+    
+    def load_numpy_data(self, file_path: str, dataset_type: str) -> Tuple[np.ndarray, np.ndarray]:
+        """Load data from numpy file (NAB, SMAP_MSL, SMD, UCR datasets)"""
+        try:
+            # Load test data
+            test_data = np.load(file_path)
+            
+            # Try to load corresponding labels file
+            labels_file = file_path.replace('_test.npy', '_labels.npy')
+            labels = None
+            
+            if os.path.exists(labels_file):
+                labels = np.load(labels_file)
+            else:
+                # For some datasets, labels might be in a different location
+                if dataset_type == 'nab':
+                    # NAB datasets might have labels in a different format
+                    labels_file = file_path.replace('_test.npy', '_labels.npy')
+                    if os.path.exists(labels_file):
+                        labels = np.load(labels_file)
+                elif dataset_type in ['smap_msl', 'smd']:
+                    # These datasets might have labels in a different location
+                    labels_file = file_path.replace('_test.npy', '_labels.npy')
+                    if os.path.exists(labels_file):
+                        labels = np.load(labels_file)
+                elif dataset_type == 'ucr':
+                    # UCR datasets might have labels in a different location
+                    labels_file = file_path.replace('_test.npy', '_labels.npy')
+                    if os.path.exists(labels_file):
+                        labels = np.load(labels_file)
+            
+            return test_data, labels
+        except Exception as e:
+            print(f"Error loading numpy data from {file_path}: {e}")
+            return None, None
+    
+    def load_psm_data(self, file_path: str) -> Tuple[np.ndarray, np.ndarray]:
+        """Load PSM dataset from CSV file"""
+        try:
+            import pandas as pd
+            
+            # Load test data
+            test_df = pd.read_csv(file_path)
+            
+            # Extract feature columns
+            feature_cols = [col for col in test_df.columns if col.startswith('feature_')]
+            test_data = test_df[feature_cols].values
+            
+            # Try to load labels
+            labels_file = file_path.replace('test.csv', 'test_label.csv')
+            labels = None
+            
+            if os.path.exists(labels_file):
+                labels_df = pd.read_csv(labels_file)
+                if 'anomaly' in labels_df.columns:
+                    labels = labels_df['anomaly'].values
+                elif 'label' in labels_df.columns:
+                    labels = labels_df['label'].values
+                else:
+                    # Use the first column as labels
+                    labels = labels_df.iloc[:, 0].values
+            
+            return test_data, labels
+        except Exception as e:
+            print(f"Error loading PSM data from {file_path}: {e}")
+            return None, None
+    
+    def run_inference(self, data: np.ndarray, window_size: int, stride: int = 1, batch_size: int = 32) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Perform sliding window inference on data with batch processing
-        
-        Note: This method computes absolute errors for all windows, but the final
-        timestep scores are computed using a new strategy in compute_timestep_scores():
-        - Window 0: Uses all timesteps in the window
-        - Window 1+: Only uses the last timestep (since stride=1)
-        - No averaging: Each timestep is computed only once
+        Run inference on data and return timestep anomaly scores and reconstruction
         
         Args:
             data: Input data of shape (features, time_steps)
             window_size: Size of sliding window
             stride: Step size for sliding window
-            batch_size: Batch size for processing windows (similar to training)
+            batch_size: Batch size for processing windows
             
         Returns:
-            Tuple of (reconstruction_errors, anomaly_scores, absolute_errors)
+            Tuple of (timestep_scores, reconstruction)
         """
-        self.window_size = window_size
-        _ , time_steps = data.shape
+        # Compute timestep anomaly scores directly
+        timestep_scores = self.compute_timestep_anomaly_scores(data, window_size, stride, batch_size)
+        
+        # Create full reconstruction (simplified)
+        reconstruction = self.create_simple_reconstruction(data, window_size, stride)
+        
+        return timestep_scores, reconstruction
+    
+    def compute_timestep_anomaly_scores(self, data: np.ndarray, window_size: int, stride: int = 1, batch_size: int = 32) -> np.ndarray:
+        """
+        Compute anomaly score for each timestep directly
+        
+        Strategy:
+        - Window 0 [0:window_size-1]: Calculate anomaly score for ALL timesteps in the window
+        - Window 1+ [i:i+window_size-1]: Only calculate anomaly score for the LAST timestep (i+window_size-1)
+        - This ensures every timestep gets exactly one score
+        
+        Args:
+            data: Input data of shape (features, time_steps)
+            window_size: Size of sliding window
+            stride: Step size for sliding window
+            batch_size: Batch size for processing windows
+            
+        Returns:
+            timestep_scores: (time_steps,) - anomaly score for each timestep
+        """
+        _, time_steps = data.shape
         
         # Calculate number of windows to cover all timesteps
-        # We need enough windows so that the last window covers the last timestep
-        # Last window should end at time_steps-1, so start at time_steps-window_size
-        # Number of windows = (time_steps - window_size) + 1
         n_windows = time_steps - window_size + 1
         
-        reconstruction_errors = []
-        anomaly_scores = []
-        absolute_errors = []
+        # Initialize timestep scores
+        timestep_scores = np.zeros(time_steps, dtype=np.float32)
         
-        print(f"Processing {n_windows} windows with stride {stride} and batch size {batch_size}")
-        print(f"Data length: {time_steps}, Window size: {window_size}")
-        print(f"Last window will cover timesteps [{n_windows-1}*{stride}, {(n_windows-1)*stride + window_size}] = [{((n_windows-1)*stride)}, {((n_windows-1)*stride + window_size-1)}]")
+        print(f"Computing timestep anomaly scores for {time_steps} timesteps from {n_windows} windows...")
+        print(f"Strategy: Window 0 uses all timesteps, subsequent windows use only last timestep")
         
         # Process windows in batches
         with torch.no_grad():
             for batch_start in range(0, n_windows, batch_size):
                 batch_end = min(batch_start + batch_size, n_windows)
-                current_batch_size = batch_end - batch_start
                 
                 # Prepare batch data
                 batch_windows = []
@@ -282,11 +464,6 @@ class ContrastiveInference:
                 for i in range(batch_start, batch_end):
                     start_idx = i * stride
                     end_idx = start_idx + window_size
-                    
-                    # Check if this window reaches the end of data
-                    if end_idx > time_steps:
-                        print(f"Window {i}: end_idx ({end_idx}) > time_steps ({time_steps}), stopping")
-                        break
                     
                     # Extract window
                     window_data = data[:, start_idx:end_idx]  # (features, window_size)
@@ -312,117 +489,28 @@ class ContrastiveInference:
                 mean_absolute_error = torch.mean(absolute_error, dim=2)  # (batch_size, window_size)
                 mean_absolute_error = mean_absolute_error.cpu().numpy()  # (batch_size, window_size)
                 
-                # Calculate anomaly score (mean absolute error for each window)
-                anomaly_scores_batch = np.mean(mean_absolute_error, axis=1)  # (batch_size,)
-                
-                # Also keep the old MSE calculation for backward compatibility
-                reconstruction_error = torch.mean((batch_tensor - reconstructed) ** 2, dim=2)  # (batch_size, window_size)
-                reconstruction_error = reconstruction_error.cpu().numpy()  # (batch_size, window_size)
-                
                 # Store results for this batch
                 for j, window_idx in enumerate(batch_indices):
-                    reconstruction_errors.append(reconstruction_error[j])
-                    anomaly_scores.append(anomaly_scores_batch[j])
-                    absolute_errors.append(mean_absolute_error[j])
+                    start_idx = window_idx * stride
+                    end_idx = min(start_idx + window_size, time_steps)
+                    valid_len = end_idx - start_idx
+                    
+                    if window_idx == 0:
+                        # First window [0:window_size-1]: use all timesteps
+                        timestep_scores[start_idx:end_idx] = mean_absolute_error[j][:valid_len]
+                    else:
+                        # Subsequent windows [i:i+window_size-1]: only use the last timestep
+                        last_timestep_idx = end_idx - 1
+                        if last_timestep_idx < time_steps:
+                            timestep_scores[last_timestep_idx] = mean_absolute_error[j][valid_len - 1]
                 
                 if (batch_end) % (batch_size * 10) == 0 or batch_end == n_windows:
                     print(f"Processed {batch_end}/{n_windows} windows")
-        
-        # Convert to numpy arrays
-        reconstruction_errors = np.array(reconstruction_errors)  # (n_windows, window_size)
-        anomaly_scores = np.array(anomaly_scores)  # (n_windows,)
-        absolute_errors = np.array(absolute_errors)  # (n_windows, window_size)
-        
-        return reconstruction_errors, anomaly_scores, absolute_errors
-    
-    def create_full_reconstruction(self, data: np.ndarray, reconstruction_errors: np.ndarray, 
-                                 window_size: int, stride: int = 1) -> np.ndarray:
-        """
-        Create full reconstruction by averaging overlapping windows
-        
-        Args:
-            data: Original data
-            reconstruction_errors: Reconstruction errors from sliding window
-            window_size: Window size used
-            stride: Stride used
-            
-        Returns:
-            Full reconstruction of original data
-        """
-        _ , time_steps = data.shape
-        n_windows = reconstruction_errors.shape[0]
-        
-        # Initialize reconstruction arrays
-        reconstruction_sum = np.zeros_like(data)
-        reconstruction_count = np.zeros(time_steps)
-        
-        # Accumulate reconstructions
-        for i in range(n_windows):
-            start_idx = i * stride
-            end_idx = start_idx + window_size
-            
-            # Get original window
-            original_window = data[:, start_idx:end_idx]
-            
-            # Calculate reconstruction (original - error)
-            reconstructed_window = original_window - np.sqrt(reconstruction_errors[i])  # Approximate reconstruction
-            
-            # Add to full reconstruction
-            reconstruction_sum[:, start_idx:end_idx] += reconstructed_window
-            reconstruction_count[start_idx:end_idx] += 1
-        
-        # Average overlapping regions
-        reconstruction_count = np.maximum(reconstruction_count, 1)  # Avoid division by zero
-        full_reconstruction = reconstruction_sum / reconstruction_count
-        
-        return full_reconstruction
-
-    def compute_timestep_scores(self, absolute_errors: np.ndarray, time_steps: int,
-                                window_size: int, stride: int = 1) -> np.ndarray:
-        """
-        Compute per-timestep scores using new strategy:
-        - Window 0 [0:window_size-1]: Use all timesteps in the window
-        - Window 1+ [i:i+window_size-1]: Only use the last timestep (i+window_size-1)
-        - This ensures every timestep gets exactly one score
-        
-        Args:
-            absolute_errors: (n_windows, window_size) - absolute errors for each window
-            time_steps: Total number of timesteps in original data
-            window_size: Size of each window
-            stride: Step size between windows
-            
-        Returns:
-            timestep_scores: (time_steps,) - anomaly score for each timestep
-        """
-        n_windows = absolute_errors.shape[0]
-        timestep_scores = np.zeros(time_steps, dtype=np.float32)
-        
-        print(f"Computing timestep scores for {time_steps} timesteps from {n_windows} windows...")
-        print(f"Strategy: Window 0 uses all timesteps, subsequent windows use only last timestep")
-        
-        for i in range(n_windows):
-            start_idx = i * stride
-            end_idx = min(start_idx + window_size, time_steps)
-            valid_len = end_idx - start_idx
-            if valid_len <= 0:
-                continue
-            
-            if i == 0:
-                # First window [0:window_size-1]: use all timesteps
-                timestep_scores[start_idx:end_idx] = absolute_errors[i][:valid_len]
-                print(f"Window {i}: Used all {valid_len} timesteps from {start_idx} to {end_idx-1}")
-            else:
-                # Subsequent windows [i:i+window_size-1]: only use the last timestep
-                last_timestep_idx = end_idx - 1
-                if last_timestep_idx < time_steps:
-                    timestep_scores[last_timestep_idx] = absolute_errors[i][valid_len - 1]
-                    # print(f"Window {i}: Used only last timestep {last_timestep_idx} (value: {absolute_errors[i][valid_len - 1]:.6f})")
         
         # Verify all timesteps are covered
         uncovered_timesteps = np.sum(timestep_scores == 0)
         if uncovered_timesteps > 0:
             print(f"Warning: {uncovered_timesteps} timesteps were not covered by any window")
-            # This should not happen with the correct window calculation
         else:
             print(f"All {time_steps} timesteps are covered by windows")
         
@@ -432,45 +520,25 @@ class ContrastiveInference:
         
         return timestep_scores
     
-    def detect_anomalies(self, anomaly_scores: np.ndarray, threshold: float) -> Tuple[float, np.ndarray]:
+    def create_simple_reconstruction(self, data: np.ndarray, window_size: int, stride: int = 1) -> np.ndarray:
         """
-        Detect anomalies based on anomaly scores
+        Create a simple reconstruction by copying original data
+        (This is a placeholder - can be enhanced later if needed)
         
         Args:
-            anomaly_scores: Anomaly scores for each window
-            threshold: Threshold value for anomaly detection
+            data: Original data
+            window_size: Window size used
+            stride: Stride used
             
         Returns:
-            Tuple of (threshold_value, anomalies_boolean_array)
+            Simple reconstruction (copy of original data)
         """
-        anomalies = anomaly_scores > threshold
-        
-        print(f"Anomaly threshold: {threshold:.6f}")
-        print(f"Number of anomalous windows: {np.sum(anomalies)}")
-        print(f"Anomaly rate: {np.sum(anomalies) / len(anomalies) * 100:.2f}%")
-        
-        return threshold, anomalies
+        return data.copy()
     
-    def create_threshold_range(self, absolute_errors: np.ndarray, num_thresholds: int = 100) -> np.ndarray:
-        """
-        Create threshold range from [0, max(|Eo-Ep|)]
-        
-        Args:
-            absolute_errors: Absolute errors from inference (n_windows, window_size)
-            num_thresholds: Number of threshold values to generate
-            
-        Returns:
-            Array of threshold values
-        """
-        max_error = np.max(absolute_errors)
-        min_error = 0.0
-        
-        print(f"Number of thresholds: {num_thresholds}")
-        
-        # Create evenly spaced thresholds
-        thresholds = np.linspace(min_error, max_error, num_thresholds)
-        
-        return thresholds
+    
+
+    
+    
     
     def evaluate_threshold_range(self, timestep_scores: np.ndarray, labels: np.ndarray,
                                 num_thresholds: int = 1000, use_adjustment: bool = True) -> Dict:
@@ -589,8 +657,7 @@ class ContrastiveInference:
     
     def save_threshold_results_to_excel(self, threshold_results: Dict, save_path: str, config_info: Dict = None):
         """
-        Save threshold analysis results to Excel file with multiple sheets
-        If file exists, append results to existing file to compare multiple models
+        Save threshold analysis results to Excel file for single file inference
         
         Args:
             threshold_results: Results from evaluate_threshold_range
@@ -601,8 +668,10 @@ class ContrastiveInference:
             print(f"Cannot save to Excel: {threshold_results['error']}")
             return
         
-        # Extract model timestamp from model path for sheet naming
+        # Extract model timestamp and test filename for sheet naming
         model_timestamp = "unknown"
+        test_filename = "unknown"
+        
         if config_info and 'Model_Path' in config_info:
             model_path = config_info['Model_Path']
             # Extract timestamp from path like: checkpoints/ecg_20250929_143022/best_model.pth
@@ -611,8 +680,11 @@ class ContrastiveInference:
             if match:
                 model_timestamp = match.group(1)
         
-        # Create sheet name with timestamp
-        sheet_name = f"Model_{model_timestamp}"
+        if config_info and 'Test_File' in config_info:
+            test_filename = config_info['Test_File'].replace('.pkl', '').replace('.npy', '').replace('.csv', '')
+        
+        # Create sheet name with timestamp and test file
+        sheet_name = f"{model_timestamp}_{test_filename}"
         
         print(f"Saving threshold analysis results to Excel: {save_path}")
         print(f"Sheet name: {sheet_name}")
@@ -630,14 +702,15 @@ class ContrastiveInference:
             'True_Negatives': threshold_results['true_negatives']
         })
         
-        # Create summary DataFrame with model info
+        # Create summary DataFrame with model and test file info
         best_metrics = threshold_results['best_metrics']
         summary_data = {
-            'Metric': ['Model_Timestamp', 'Best_Threshold', 'Best_F1_Score', 'Best_Precision', 'Best_Recall', 'Best_Accuracy',
+            'Metric': ['Model_Timestamp', 'Test_File', 'Best_Threshold', 'Best_F1_Score', 'Best_Precision', 'Best_Recall', 'Best_Accuracy',
                       'Best_True_Positives', 'Best_False_Positives', 'Best_False_Negatives', 'Best_True_Negatives',
-                      'Total_Thresholds'],
+                      'Total_Thresholds', 'Total_Samples', 'Total_Anomalies', 'Detected_Anomalies'],
             'Value': [
                 model_timestamp,
+                test_filename,
                 threshold_results['best_threshold'],
                 best_metrics['f1'],
                 best_metrics['precision'],
@@ -647,7 +720,10 @@ class ContrastiveInference:
                 best_metrics['fp'],
                 best_metrics['fn'],
                 best_metrics['tn'],
-                len(threshold_results['thresholds'])
+                len(threshold_results['thresholds']),
+                threshold_results.get('total_samples', 'N/A'),
+                threshold_results.get('total_anomalies', 'N/A'),
+                threshold_results.get('detected_anomalies', 'N/A')
             ]
         }
         df_summary = pd.DataFrame(summary_data)
@@ -697,67 +773,57 @@ class ContrastiveInference:
         }
         df_stats = pd.DataFrame(stats_data)
         
-        # Save to Excel with multiple sheets - append if file exists
-        file_exists = os.path.exists(save_path)
-        
-        if file_exists:
-            # Load existing file to preserve other model results
-            with pd.ExcelWriter(save_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                # Add new model results with timestamped sheet name
-                df_results.to_excel(writer, sheet_name=sheet_name, index=False)
-                print(f"Appended results to existing Excel file: {save_path}")
-        else:
-            # Create new file with all sheets
-            with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
-                # Sheet 1: All Results for this model
-                df_results.to_excel(writer, sheet_name=sheet_name, index=False)
-                
-                # Sheet 2: Summary for this model
-                df_summary.to_excel(writer, sheet_name=f'{sheet_name}_Summary', index=False)
-                
-                # Sheet 3: Top 10 Performers for this model
-                df_top_performers.to_excel(writer, sheet_name=f'{sheet_name}_Top10', index=False)
-                
-                # Sheet 4: Statistics for this model
-                df_stats.to_excel(writer, sheet_name=f'{sheet_name}_Stats', index=False)
-                
-                # Sheet 5: Threshold Analysis Info for this model
-                info_data = {
-                    'Parameter': ['Model_Timestamp', 'Analysis_Method', 'Point_Adjustment_Used', 'Total_Thresholds_Tested',
-                                 'Evaluation_Metrics', 'Best_Threshold_Found',
-                                 'Best_F1_Score_Achieved', 'Best_Precision_Achieved', 'Best_Recall_Achieved'],
-                    'Value': [model_timestamp, 'Comprehensive Threshold Analysis', 'Yes', len(threshold_results['thresholds']),
-                             'Precision, Recall, F1-Score, Accuracy, TP, FP, FN, TN',
-                             f"{threshold_results['best_threshold']:.6f}",
-                             f"{best_metrics['f1']:.4f}",
-                             f"{best_metrics['precision']:.4f}",
-                             f"{best_metrics['recall']:.4f}"]
+        # Save to Excel with multiple sheets
+        with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
+            # Sheet 1: All Results for this test file
+            df_results.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Sheet 2: Summary for this test file
+            df_summary.to_excel(writer, sheet_name=f'{sheet_name}_Summary', index=False)
+            
+            # Sheet 3: Top 10 Performers for this test file
+            df_top_performers.to_excel(writer, sheet_name=f'{sheet_name}_Top10', index=False)
+            
+            # Sheet 4: Statistics for this test file
+            df_stats.to_excel(writer, sheet_name=f'{sheet_name}_Stats', index=False)
+            
+            # Sheet 5: Threshold Analysis Info for this test file
+            info_data = {
+                'Parameter': ['Model_Timestamp', 'Test_File', 'Analysis_Method', 'Point_Adjustment_Used', 'Total_Thresholds_Tested',
+                             'Evaluation_Metrics', 'Best_Threshold_Found',
+                             'Best_F1_Score_Achieved', 'Best_Precision_Achieved', 'Best_Recall_Achieved'],
+                'Value': [model_timestamp, test_filename, 'Comprehensive Threshold Analysis', 'Yes', len(threshold_results['thresholds']),
+                         'Precision, Recall, F1-Score, Accuracy, TP, FP, FN, TN',
+                         f"{threshold_results['best_threshold']:.6f}",
+                         f"{best_metrics['f1']:.4f}",
+                         f"{best_metrics['precision']:.4f}",
+                         f"{best_metrics['recall']:.4f}"]
+            }
+            df_info = pd.DataFrame(info_data)
+            df_info.to_excel(writer, sheet_name=f'{sheet_name}_Info', index=False)
+            
+            # Sheet 6: Configuration Information for this test file
+            if config_info is not None:
+                config_data = {
+                    'Parameter': list(config_info.keys()),
+                    'Value': [str(config_info[key]) for key in config_info.keys()]
                 }
-                df_info = pd.DataFrame(info_data)
-                df_info.to_excel(writer, sheet_name=f'{sheet_name}_Info', index=False)
-                
-                # Sheet 6: Configuration Information for this model
-                if config_info is not None:
-                    config_data = {
-                        'Parameter': list(config_info.keys()),
-                        'Value': [str(config_info[key]) for key in config_info.keys()]
-                    }
-                    df_config = pd.DataFrame(config_data)
-                    df_config.to_excel(writer, sheet_name=f'{sheet_name}_Config', index=False)
-                
-                print(f"Created new Excel file: {save_path}")
+                df_config = pd.DataFrame(config_data)
+                df_config.to_excel(writer, sheet_name=f'{sheet_name}_Config', index=False)
+            
+            print(f"Created Excel file: {save_path}")
         
         # Determine sheet count
         sheet_count = 6 if config_info is not None else 5
         
         print(f"Excel file saved successfully with {sheet_count} sheets:")
-        print(f"  1. {sheet_name}: Complete threshold analysis results for this model")
-        print(f"  2. {sheet_name}_Summary: Best performance summary")
-        print(f"  3. {sheet_name}_Top10: Top 10 F1-score results")
-        print(f"  4. {sheet_name}_Stats: Statistical analysis of all metrics")
-        print(f"  5. {sheet_name}_Info: Analysis parameters and information")
+        print(f"  1. {sheet_name}: Complete threshold analysis results for {test_filename}")
+        print(f"  2. {sheet_name}_Summary: Best performance summary for {test_filename}")
+        print(f"  3. {sheet_name}_Top10: Top 10 F1-score results for {test_filename}")
+        print(f"  4. {sheet_name}_Stats: Statistical analysis of all metrics for {test_filename}")
+        print(f"  5. {sheet_name}_Info: Analysis parameters and information for {test_filename}")
         if config_info is not None:
-            print(f"  6. {sheet_name}_Config: Model and inference configuration")
+            print(f"  6. {sheet_name}_Config: Model and inference configuration for {test_filename}")
             print(f"     - Includes: Use_Contrastive, Best_Training_Loss, model architecture")
             print(f"     - Training params: learning rate, epochs, batch size, etc.")
             print(f"     - Model params: dimensions, layers, weights, etc.")
@@ -810,401 +876,17 @@ class ContrastiveInference:
         except Exception as e:
             print(f"Warning: Could not create model comparison sheet: {e}")
     
-    def plot_best_threshold_results(self, data: np.ndarray, reconstruction: np.ndarray,
-                                   labels: np.ndarray, timestep_scores: np.ndarray,
-                                   best_threshold: float, best_metrics: Dict,
-                                   save_path: str = None):
-        """
-        Plot detailed results using the best threshold found
-        
-        Args:
-            data: Original data
-            reconstruction: Reconstructed data
-            labels: Ground truth labels
-            timestep_scores: Timestep-level anomaly scores
-            best_threshold: Best threshold found from analysis
-            best_metrics: Best metrics dictionary
-            save_path: Path to save plot
-        """
-        # DISABLED: No plotting for automation
-        return
-        if labels is None or len(labels) == 0:
-            print("Cannot plot: No ground truth labels available")
-            return
-        
-        features, time_steps = data.shape
-        time_axis = np.arange(time_steps)
-        
-        # Detect anomalies using best threshold
-        timestep_anomalies = timestep_scores > best_threshold
-        
-        # Create comprehensive figure
-        # fig, axes = plt.subplots(4, 1, figsize=(20, 16))  # DISABLED: No plotting for automation
-        
-        # Plot 1: Original vs Reconstructed Data (Feature 1)
-        ax1 = axes[0]
-        ax1.plot(time_axis, data[0], 'b-', label='Original Feature 1', alpha=0.8, linewidth=1.5)
-        ax1.plot(time_axis, reconstruction[0], 'g-', label='Reconstructed Feature 1', alpha=0.8, linewidth=1.5)
-        
-        # Shade ground-truth anomaly regions
-        is_anom = (labels == 1).astype(int)
-        if np.any(is_anom):
-            diff = np.diff(np.concatenate(([0], is_anom, [0])))
-            starts = np.nonzero(diff == 1)[0]
-            ends = np.nonzero(diff == -1)[0] - 1
-            for start_idx, end_idx in zip(starts, ends):
-                ax1.axvspan(start_idx, end_idx + 1, alpha=0.25, color='red', 
-                           label='GT Anomaly' if start_idx == starts[0] else "")
-        
-        # Highlight detected anomalies
-        if np.any(timestep_anomalies):
-            anomaly_indices = np.nonzero(timestep_anomalies)[0]
-            ax1.scatter(anomaly_indices, data[0, anomaly_indices],
-                       c='orange', s=15, alpha=0.8, label='Detected Anomalies', marker='o', zorder=5)
-        
-        ax1.set_title(f'Feature 1 - Original vs Reconstructed (Best Threshold: {best_threshold:.6f})', fontsize=14, fontweight='bold')
-        ax1.set_ylabel('Amplitude')
-        ax1.legend(loc='upper right')
-        ax1.grid(True, alpha=0.3)
-        
-        # Plot 2: Original vs Reconstructed Data (Feature 2)
-        ax2 = axes[1]
-        ax2.plot(time_axis, data[1], 'b-', label='Original Feature 2', alpha=0.8, linewidth=1.5)
-        ax2.plot(time_axis, reconstruction[1], 'g-', label='Reconstructed Feature 2', alpha=0.8, linewidth=1.5)
-        
-        # Shade ground-truth anomaly regions
-        for start_idx, end_idx in zip(starts, ends):
-            ax2.axvspan(start_idx, end_idx + 1, alpha=0.25, color='red')
-        
-        # Highlight detected anomalies
-        if np.any(timestep_anomalies):
-            ax2.scatter(anomaly_indices, data[1, anomaly_indices],
-                       c='orange', s=15, alpha=0.8, label='Detected Anomalies', marker='o', zorder=5)
-        
-        ax2.set_title(f'Feature 2 - Original vs Reconstructed (Best Threshold: {best_threshold:.6f})', fontsize=14, fontweight='bold')
-        ax2.set_ylabel('Amplitude')
-        ax2.legend(loc='upper right')
-        ax2.grid(True, alpha=0.3)
-        
-        # Plot 3: Anomaly Scores with Best Threshold
-        ax3 = axes[2]
-        ax3.plot(time_axis, timestep_scores, 'purple', label='Anomaly Scores', linewidth=1.5)
-        ax3.axhline(y=best_threshold, color='red', linestyle='--', linewidth=2, 
-                   label=f'Best Threshold ({best_threshold:.6f})')
-        
-        # Highlight detected anomalies on scores plot
-        if np.any(timestep_anomalies):
-            ax3.scatter(anomaly_indices, timestep_scores[anomaly_indices], 
-                       c='red', s=20, alpha=0.8, label='Anomalous Points', zorder=5)
-        
-        ax3.set_title('Anomaly Scores with Best Threshold', fontsize=14, fontweight='bold')
-        ax3.set_ylabel('Anomaly Score')
-        ax3.legend(loc='upper right')
-        ax3.grid(True, alpha=0.3)
-        
-        # Plot 4: Performance Metrics Summary
-        ax4 = axes[3]
-        ax4.axis('off')
-        
-        # Create performance summary text
-        metrics_text = f"""
-        BEST THRESHOLD PERFORMANCE SUMMARY
-        
-        Threshold Value: {best_threshold:.6f}
-        
-        Performance Metrics:
-        • F1-Score: {best_metrics['f1']:.4f}
-        • Precision: {best_metrics['precision']:.4f}
-        • Recall: {best_metrics['recall']:.4f}
-        • Accuracy: {best_metrics['accuracy']:.4f}
-        
-        Confusion Matrix:
-        • True Positives: {best_metrics['tp']}
-        • False Positives: {best_metrics['fp']}
-        • False Negatives: {best_metrics['fn']}
-        • True Negatives: {best_metrics['tn']}
-        
-        Detection Statistics:
-        • Total Timesteps: {len(labels)}
-        • Ground Truth Anomalies: {np.sum(labels == 1)} ({np.sum(labels == 1)/len(labels)*100:.1f}%)
-        • Detected Anomalies: {np.sum(timestep_anomalies)} ({np.sum(timestep_anomalies)/len(labels)*100:.1f}%)
-        • Score Range: [{np.min(timestep_scores):.6f}, {np.max(timestep_scores):.6f}]
-        """
-        
-        ax4.text(0.05, 0.95, metrics_text, transform=ax4.transAxes, fontsize=12,
-                verticalalignment='top', fontfamily='monospace',
-                bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.8))
-        
-        plt.suptitle(f'Anomaly Detection Results - Best Threshold Analysis\n'
-                    f'F1-Score: {best_metrics["f1"]:.4f} | '
-                    f'Precision: {best_metrics["precision"]:.4f} | '
-                    f'Recall: {best_metrics["recall"]:.4f}', 
-                    fontsize=16, fontweight='bold')
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Best threshold results plot saved to {save_path}")
-        
-        plt.show()
-        
-        # Print detailed summary
-        print(f"\n" + "="*80)
-        print(f"BEST THRESHOLD RESULTS SUMMARY")
-        print(f"="*80)
-        print(f"Best Threshold: {best_threshold:.6f}")
-        print(f"F1-Score: {best_metrics['f1']:.4f}")
-        print(f"Precision: {best_metrics['precision']:.4f}")
-        print(f"Recall: {best_metrics['recall']:.4f}")
-        print(f"Accuracy: {best_metrics['accuracy']:.4f}")
-        print(f"\nConfusion Matrix:")
-        print(f"  True Positives: {best_metrics['tp']}")
-        print(f"  False Positives: {best_metrics['fp']}")
-        print(f"  False Negatives: {best_metrics['fn']}")
-        print(f"  True Negatives: {best_metrics['tn']}")
-        print(f"\nDetection Summary:")
-        print(f"  Ground Truth Anomalies: {np.sum(labels == 1)} ({np.sum(labels == 1)/len(labels)*100:.1f}%)")
-        print(f"  Detected Anomalies: {np.sum(timestep_anomalies)} ({np.sum(timestep_anomalies)/len(labels)*100:.1f}%)")
-        print(f"  Anomaly Score Range: [{np.min(timestep_scores):.6f}, {np.max(timestep_scores):.6f}]")
-        print(f"="*80)
     
-    def plot_results(self, data: np.ndarray, reconstruction: np.ndarray, 
-                    labels: np.ndarray, anomaly_scores: np.ndarray, 
-                    anomalies: np.ndarray, window_size: int, stride: int = 1,
-                    threshold_value: float = None,
-                    save_path: str = None,
-                    timestep_scores: np.ndarray = None,
-                    timestep_anomalies: np.ndarray = None):
-        """
-        Plot original data, reconstruction, and anomalies on a single grid
-        
-        Args:
-            data: Original data
-            reconstruction: Reconstructed data
-            labels: Ground truth labels
-            anomaly_scores: Anomaly scores
-            anomalies: Detected anomalies
-            window_size: Window size
-            stride: Stride
-            save_path: Path to save plot
-        """
-        # DISABLED: No plotting for automation
-        return
-        features, time_steps = data.shape
-        time_axis = np.arange(time_steps)
-
-        # Create figure: feature plots + anomaly scores (no separate labels grid)
-        fig, axes = plt.subplots(features + 1, 1, figsize=(15, 3 * (features + 1)))
-        
-        # Plot each feature
-        for i in range(features):
-            ax = axes[i]
-
-            # Plot original data
-            ax.plot(time_axis, data[i], 'b-', label='Original', alpha=0.7, linewidth=1)
-            
-            # Plot reconstruction
-            ax.plot(time_axis, reconstruction[i], 'g-', label='Reconstruction', alpha=0.7, linewidth=1)
-            
-            # Shade ground-truth anomaly regions (label==1) directly on the feature plot
-            if labels is not None and len(labels) == time_steps:
-                # Compute contiguous regions where labels==1
-                is_anom = (labels == 1).astype(int)
-                if np.any(is_anom):
-                    diff = np.diff(np.concatenate(([0], is_anom, [0])))
-                    starts = np.nonzero(diff == 1)[0]
-                    ends = np.nonzero(diff == -1)[0] - 1
-                    for start_idx, end_idx in zip(starts, ends):
-                        ax.axvspan(start_idx, end_idx + 1, alpha=0.25, color='red', 
-                                   label='GT Anomaly' if start_idx == starts[0] else "")
-            
-            # Highlight detected anomaly points at timestep resolution if provided
-            if timestep_anomalies is not None and np.any(timestep_anomalies):
-                anomaly_indices = np.nonzero(timestep_anomalies)[0]
-                ax.scatter(anomaly_indices, data[i, anomaly_indices],
-                           c='orange', s=8, alpha=0.7, label='Detected Anomaly Points', marker='o', zorder=4)
-            
-            ax.set_title(f'Feature {i+1} - ECG Signal')
-            ax.set_ylabel('Amplitude')
-            ax.legend(loc='upper right')
-            ax.grid(True, alpha=0.3)
-        
-        # Plot anomaly scores
-        ax = axes[features]
-        window_indices = np.arange(len(anomaly_scores))
-        ax.plot(window_indices, anomaly_scores, 'purple', label='Window Anomaly Scores', linewidth=1)
-        
-        # Add threshold line (value can be injected by caller)
-        if 'threshold_value' in locals() and threshold_value is not None:
-            thr = float(threshold_value)
-            label_text = f'Threshold ({thr:.4f})'
-        else:
-            thr = np.percentile(anomaly_scores, 95)
-            label_text = 'Threshold (95%)'
-        ax.axhline(y=thr, color='red', linestyle='--', alpha=0.7, label=label_text)
-        
-        # Highlight detected anomalies
-        if np.any(anomalies):
-            ax.scatter(window_indices[anomalies], anomaly_scores[anomalies], 
-                      c='red', s=20, alpha=0.8, label='Anomalous Windows', zorder=5)
-        
-        ax.set_title('Anomaly Scores')
-        ax.set_ylabel('Score')
-        ax.set_xlabel('Window Index')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        # Add basic statistics box on the scores plot if labels exist
-        if labels is not None and len(labels) == time_steps:
-            anomaly_count = int(np.sum(labels == 1))
-            total_count = int(len(labels))
-            anomaly_ratio = anomaly_count / max(total_count, 1) * 100
-            ax.text(0.02, 0.95, f'GT anomalies: {anomaly_count}/{total_count} ({anomaly_ratio:.1f}%)',
-                    transform=ax.transAxes, verticalalignment='top',
-                    bbox={'boxstyle': 'round', 'facecolor': 'wheat', 'alpha': 0.8})
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Plot saved to {save_path}")
-        
-        plt.show()
-    
-    def plot_threshold_analysis(self, threshold_results: Dict, save_path: str = None):
-        """
-        Plot comprehensive threshold analysis results showing performance metrics across different thresholds
-        
-        Args:
-            threshold_results: Results from evaluate_threshold_range
-            save_path: Path to save plot
-        """
-        # DISABLED: No plotting for automation
-        return
-        if "error" in threshold_results:
-            print(f"Cannot plot: {threshold_results['error']}")
-            return
-        
-        thresholds = threshold_results['thresholds']
-        precision = threshold_results['precision']
-        recall = threshold_results['recall']
-        f1_scores = threshold_results['f1_score']
-        accuracy = threshold_results['accuracy']
-        tp = threshold_results['true_positives']
-        fp = threshold_results['false_positives']
-        fn = threshold_results['false_negatives']
-        tn = threshold_results['true_negatives']
-        
-        # Create a comprehensive plot with 6 subplots
-        fig, axes = plt.subplots(3, 2, figsize=(18, 15))
-        
-        # Plot 1: Precision vs Threshold
-        axes[0, 0].plot(thresholds, precision, 'b-', linewidth=2, label='Precision')
-        axes[0, 0].axvline(x=threshold_results['best_threshold'], color='red', linestyle='--', 
-                          label=f'Best Threshold ({threshold_results["best_threshold"]:.4f})')
-        axes[0, 0].set_xlabel('Threshold')
-        axes[0, 0].set_ylabel('Precision')
-        axes[0, 0].set_title('Precision vs Threshold')
-        axes[0, 0].legend()
-        axes[0, 0].grid(True, alpha=0.3)
-        
-        # Plot 2: Recall vs Threshold
-        axes[0, 1].plot(thresholds, recall, 'g-', linewidth=2, label='Recall')
-        axes[0, 1].axvline(x=threshold_results['best_threshold'], color='red', linestyle='--', 
-                          label=f'Best Threshold ({threshold_results["best_threshold"]:.4f})')
-        axes[0, 1].set_xlabel('Threshold')
-        axes[0, 1].set_ylabel('Recall')
-        axes[0, 1].set_title('Recall vs Threshold')
-        axes[0, 1].legend()
-        axes[0, 1].grid(True, alpha=0.3)
-        
-        # Plot 3: F1-Score vs Threshold
-        axes[1, 0].plot(thresholds, f1_scores, 'purple', linewidth=2, label='F1-Score')
-        axes[1, 0].axvline(x=threshold_results['best_threshold'], color='red', linestyle='--', 
-                          label=f'Best Threshold ({threshold_results["best_threshold"]:.4f})')
-        axes[1, 0].set_xlabel('Threshold')
-        axes[1, 0].set_ylabel('F1-Score')
-        axes[1, 0].set_title('F1-Score vs Threshold')
-        axes[1, 0].legend()
-        axes[1, 0].grid(True, alpha=0.3)
-        
-        # Plot 4: Accuracy vs Threshold
-        axes[1, 1].plot(thresholds, accuracy, 'orange', linewidth=2, label='Accuracy')
-        axes[1, 1].axvline(x=threshold_results['best_threshold'], color='red', linestyle='--', 
-                          label=f'Best Threshold ({threshold_results["best_threshold"]:.4f})')
-        axes[1, 1].set_xlabel('Threshold')
-        axes[1, 1].set_ylabel('Accuracy')
-        axes[1, 1].set_title('Accuracy vs Threshold')
-        axes[1, 1].legend()
-        axes[1, 1].grid(True, alpha=0.3)
-        
-        # Plot 5: Confusion Matrix Components vs Threshold
-        axes[2, 0].plot(thresholds, tp, 'g-', linewidth=2, label='True Positives')
-        axes[2, 0].plot(thresholds, fp, 'r-', linewidth=2, label='False Positives')
-        axes[2, 0].axvline(x=threshold_results['best_threshold'], color='red', linestyle='--', alpha=0.7)
-        axes[2, 0].set_xlabel('Threshold')
-        axes[2, 0].set_ylabel('Count')
-        axes[2, 0].set_title('TP/FP vs Threshold')
-        axes[2, 0].legend()
-        axes[2, 0].grid(True, alpha=0.3)
-        
-        # Plot 6: FN/TN vs Threshold
-        axes[2, 1].plot(thresholds, fn, 'orange', linewidth=2, label='False Negatives')
-        axes[2, 1].plot(thresholds, tn, 'blue', linewidth=2, label='True Negatives')
-        axes[2, 1].axvline(x=threshold_results['best_threshold'], color='red', linestyle='--', alpha=0.7)
-        axes[2, 1].set_xlabel('Threshold')
-        axes[2, 1].set_ylabel('Count')
-        axes[2, 1].set_title('FN/TN vs Threshold')
-        axes[2, 1].legend()
-        axes[2, 1].grid(True, alpha=0.3)
-        
-        # Add comprehensive title with best results
-        best_metrics = threshold_results['best_metrics']
-        title = f'Threshold Analysis Results (Best F1: {threshold_results["best_f1"]:.4f} @ {threshold_results["best_threshold"]:.4f})'
-        plt.suptitle(title, fontsize=16)
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Threshold analysis plot saved to {save_path}")
-        
-        plt.show()
-        
-        # Print detailed statistics
-        print(f"\n" + "="*80)
-        print(f"DETAILED THRESHOLD ANALYSIS STATISTICS")
-        print(f"="*80)
-        print(f"Total thresholds evaluated: {len(thresholds)}")
-        print(f"\nBest Performance:")
-        print(f"  Threshold: {threshold_results['best_threshold']:.6f}")
-        print(f"  F1-Score: {best_metrics['f1']:.4f}")
-        print(f"  Precision: {best_metrics['precision']:.4f}")
-        print(f"  Recall: {best_metrics['recall']:.4f}")
-        print(f"  Accuracy: {best_metrics['accuracy']:.4f}")
-        print(f"  True Positives: {best_metrics['tp']}")
-        print(f"  False Positives: {best_metrics['fp']}")
-        print(f"  False Negatives: {best_metrics['fn']}")
-        print(f"  True Negatives: {best_metrics['tn']}")
-        
-        # Find top 5 F1 scores
-        f1_array = np.array(f1_scores)
-        top5_indices = np.argsort(f1_array)[-5:][::-1]
-        print(f"\nTop 5 F1-Scores:")
-        for i, idx in enumerate(top5_indices):
-            print(f"  {i+1}. F1: {f1_array[idx]:.4f}, Threshold: {thresholds[idx]:.6f}")
-        print(f"="*80)
-    
-    def evaluate_performance(self, labels: np.ndarray, anomalies: np.ndarray, 
+    def evaluate_performance(self, labels: np.ndarray, timestep_anomalies: np.ndarray, 
                            window_size: int, stride: int = 1, use_adjustment: bool = True) -> Dict[str, float]:
         """
         Evaluate anomaly detection performance with optional Point Adjustment
         
         Args:
             labels: Ground truth labels
-            anomalies: Detected anomalies
-            window_size: Window size
-            stride: Stride
+            timestep_anomalies: Detected anomalies at timestep level
+            window_size: Window size (not used for timestep-level evaluation)
+            stride: Stride (not used for timestep-level evaluation)
             use_adjustment: Whether to apply Point Adjustment algorithm
             
         Returns:
@@ -1213,19 +895,14 @@ class ContrastiveInference:
         if labels is None or len(labels) == 0:
             return {"error": "No ground truth labels available"}
         
-        # Convert window-level anomalies to time-step level
-        time_steps = len(labels)
-        
-        detected_timesteps = np.zeros(time_steps, dtype=bool)
-        for i, is_anomaly in enumerate(anomalies):
-            if is_anomaly:
-                start_idx = i * stride
-                end_idx = min(start_idx + window_size, time_steps)
-                detected_timesteps[start_idx:end_idx] = True
+        # Ensure labels and timestep_anomalies have same length
+        min_len = min(len(labels), len(timestep_anomalies))
+        labels = labels[:min_len]
+        timestep_anomalies = timestep_anomalies[:min_len]
         
         # Convert to binary arrays
         gt = labels.astype(int)
-        pred_before_pa = detected_timesteps.astype(int)
+        pred_before_pa = timestep_anomalies.astype(int)
         
         # Apply Point Adjustment if requested
         if use_adjustment:
@@ -1246,276 +923,112 @@ class ContrastiveInference:
             "false_negatives": fn,
             "true_negatives": tn
         }
-
-
-def calculate_average_metrics(all_threshold_results: List[Dict]) -> Dict:
-    """
-    Calculate basic metrics across all files
     
-    Args:
-        all_threshold_results: List of threshold results for each file
-    
-    Returns:
-        Dictionary with basic metrics
-    """
-    if not all_threshold_results:
-        return {}
-    
-    # Return only basic information
-    avg_results = {
-        'num_files': len(all_threshold_results)
-    }
-    
-    return avg_results
-
-
-def save_comprehensive_results_to_excel(all_threshold_results: List[Dict], avg_results: Dict, 
-                                      save_path: str, args):
-    """
-    Save comprehensive results to Excel with multiple sheets
-    
-    Args:
-        all_threshold_results: List of threshold results for each file
-        avg_results: Average metrics across all files
-        save_path: Path to save Excel file
-        args: Command line arguments
-    """
-    print(f"Saving comprehensive results to Excel: {save_path}")
-    
-    # Load additional information from config and checkpoint
-    additional_info = {}
-    
-    # Load config information
-    config_path = os.path.join(os.path.dirname(args.model_path), 'config.json')
-    if os.path.exists(config_path):
-        try:
-            import json
-            with open(config_path, 'r') as f:
-                config_data = json.load(f)
-                additional_info.update({
-                    'Use_Contrastive': config_data.get('use_contrastive', 'Unknown'),
-                    'Contrastive_Weight': config_data.get('contrastive_weight', 'Unknown'),
-                    'Reconstruction_Weight': config_data.get('reconstruction_weight', 'Unknown'),
-                    'Temperature': config_data.get('temperature', 'Unknown'),
-                    'D_Model': config_data.get('d_model', 'Unknown'),
-                    'Projection_Dim': config_data.get('projection_dim', 'Unknown'),
-                    'Transformer_Layers': config_data.get('transformer_layers', 'Unknown'),
-                    'TCN_Layers': config_data.get('tcn_num_layers', 'Unknown'),
-                    'Learning_Rate': config_data.get('learning_rate', 'Unknown'),
-                    'Weight_Decay': config_data.get('weight_decay', 'Unknown'),
-                    'Epsilon': config_data.get('epsilon', 'Unknown'),
-                    'Training_Batch_Size': config_data.get('batch_size', 'Unknown'),
-                    'Num_Epochs': config_data.get('num_epochs', 'Unknown'),
-                    'Training_Device': config_data.get('device', 'Unknown'),
-                    'Seed': config_data.get('seed', 'Unknown'),
-                    'Mask_Mode': config_data.get('mask_mode', 'Unknown'),
-                    'Mask_Ratio': config_data.get('mask_ratio', 'Unknown'),
-                    'Mask_Seed': config_data.get('mask_seed', 'Unknown'),
-                    # Augmentation-specific hyperparameters
-                    'Aug_nhead': config_data.get('aug_nhead', 'Unknown'),
-                    'Aug_num_layers': config_data.get('aug_num_layers', 'Unknown'),
-                    'Aug_tcn_kernel_size': config_data.get('aug_tcn_kernel_size', 'Unknown'),
-                    'Aug_tcn_num_layers': config_data.get('aug_tcn_num_layers', 'Unknown'),
-                    'Aug_dropout': config_data.get('aug_dropout', 'Unknown'),
-                    'Aug_temperature': config_data.get('aug_temperature', 'Unknown')
-                })
-        except Exception as e:
-            print(f"Warning: Could not load config.json: {e}")
-    
-    # Load checkpoint information for best loss
-    try:
-        import torch
-        checkpoint = torch.load(args.model_path, map_location='cpu')
-        additional_info.update({
-            'Best_Training_Loss': checkpoint.get('best_loss', 'Unknown'),
-            'Training_Epoch': checkpoint.get('epoch', 'Unknown'),
-            'Has_Optimizer': checkpoint.get('optimizer_state_dict') is not None,
-            'Has_Scheduler': checkpoint.get('scheduler_state_dict') is not None,
-            'Contrastive_Weight_Used': checkpoint.get('contrastive_weight', 'Unknown'),
-            'Reconstruction_Weight_Used': checkpoint.get('reconstruction_weight', 'Unknown')
-        })
-    except Exception as e:
-        print(f"Warning: Could not load checkpoint info: {e}")
-    
-    # Prepare comprehensive config information
-    config_info = {
-        'Dataset_Type': args.dataset,
-        'Data_Path': args.data_path,
-        'Model_Path': args.model_path,
-        'Window_Size': args.window_size,
-        'Stride': args.stride,
-        'Inference_Batch_Size': args.batch_size,
-        'Num_Thresholds': args.num_thresholds,
-        'Use_Threshold_Range': True,
-        'Mask_Mode': args.mask_mode,
-        'Mask_Ratio': args.mask_ratio,
-        'Mask_Seed': args.mask_seed,
-        'Save_Plot': args.save_plot,
-        'Save_Excel': args.save_excel,
-        'Output_Directory': args.output_dir,
-        'Input_Dimension': 2,  # ECG has 2 features
-        'Model_Architecture': 'ContrastiveModel',
-        'Analysis_Type': 'Per-File Analysis',
-        'Total_Files_Processed': len(all_threshold_results)
-    }
-    
-    # Merge additional info
-    config_info.update(additional_info)
-    
-    file_exists = os.path.exists(save_path)
-    
-    # Build current run frames
-    summary_data = []
-    for result in all_threshold_results:
-        filename = result.get('filename', 'Unknown')
-        best_metrics = result.get('best_metrics', {})
-        summary_data.append({
-            'Filename': filename,
-            'F1_Score': best_metrics.get('f1', 0.0),
-            'Precision': best_metrics.get('precision', 0.0),
-            'Recall': best_metrics.get('recall', 0.0),
-            'Accuracy': best_metrics.get('accuracy', 0.0),
-            'Best_Threshold': result.get('best_threshold', 0.0),
-            'Total_Samples': result.get('total_samples', 0),
-            'Total_Anomalies_GT': result.get('total_anomalies', 0),
-            'Detected_Anomalies': result.get('detected_anomalies', 0),
-            'Detection_Rate': result.get('anomaly_detection_rate', 0.0),
-            'TP': best_metrics.get('tp', 0),
-            'FP': best_metrics.get('fp', 0),
-            'FN': best_metrics.get('fn', 0),
-            'TN': best_metrics.get('tn', 0),
-            'Data_Shape': str(result.get('data_shape', 'Unknown'))
-        })
-    df_summary_new = pd.DataFrame(summary_data)
-    df_summary_new = df_summary_new.sort_values('F1_Score', ascending=False)
-
-    anomaly_stats = []
-    total_gt_anomalies = 0
-    total_detected_anomalies = 0
-    total_samples = 0
-    for result in all_threshold_results:
-        filename = result.get('filename', 'Unknown')
-        gt_anomalies = result.get('total_anomalies', 0)
-        detected_anomalies = result.get('detected_anomalies', 0)
-        samples = result.get('total_samples', 0)
-        total_gt_anomalies += gt_anomalies
-        total_detected_anomalies += detected_anomalies
-        total_samples += samples
-        anomaly_stats.append({
-            'Filename': filename,
-            'Total_Samples': samples,
-            'Ground_Truth_Anomalies': gt_anomalies,
-            'Detected_Anomalies': detected_anomalies,
-            'Detection_Rate': result.get('anomaly_detection_rate', 0.0),
-            'GT_Anomaly_Ratio': gt_anomalies / samples if samples > 0 else 0.0,
-            'Detection_Accuracy': detected_anomalies / gt_anomalies if gt_anomalies > 0 else 0.0
-        })
-    df_anomaly_new = pd.DataFrame(anomaly_stats)
-
-    if not file_exists:
-        with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
-            df_summary_new.to_excel(writer, sheet_name='Per_File_Summary', index=False)
-            df_anomaly_new.to_excel(writer, sheet_name='Anomaly_Detection_Stats', index=False)
-            overall_stats = {
-                'Metric': [
-                    'Total_Files_Processed',
-                    'Total_Samples_Across_All_Files',
-                    'Total_GT_Anomalies',
-                    'Total_Detected_Anomalies',
-                    'Overall_Detection_Rate',
-                    'Overall_GT_Anomaly_Ratio',
-                    'Overall_Detection_Accuracy'
-                ],
-                'Value': [
-                    len(all_threshold_results),
-                    total_samples,
-                    total_gt_anomalies,
-                    total_detected_anomalies,
-                    total_detected_anomalies / total_samples if total_samples > 0 else 0.0,
-                    total_gt_anomalies / total_samples if total_samples > 0 else 0.0,
-                    total_detected_anomalies / total_gt_anomalies if total_gt_anomalies > 0 else 0.0
-                ]
-            }
-            pd.DataFrame(overall_stats).to_excel(writer, sheet_name='Overall_Anomaly_Stats', index=False)
-            df_summary_new.head(5).to_excel(writer, sheet_name='Top_5_Performers', index=False)
-            cfg_df = pd.DataFrame({'Parameter': list(config_info.keys()), 'Value': [str(config_info[k]) for k in config_info.keys()]})
-            cfg_df.to_excel(writer, sheet_name='Configuration', index=False)
-            if all_threshold_results and 'all_results' in all_threshold_results[0]:
-                all_detailed = []
-                for result in all_threshold_results:
-                    filename = result.get('filename', 'Unknown')
-                    detailed_results = result.get('all_results', [])
-                    for row in detailed_results:
-                        row['filename'] = filename
-                        all_detailed.append(row)
-                if all_detailed:
-                    pd.DataFrame(all_detailed).to_excel(writer, sheet_name='Detailed_Results', index=False)
-    else:
-        existing = pd.ExcelFile(save_path)
-        with pd.ExcelWriter(save_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-            # Per_File_Summary
-            if 'Per_File_Summary' in existing.sheet_names:
-                df_old = pd.read_excel(save_path, sheet_name='Per_File_Summary')
-                df_concat = pd.concat([df_old, df_summary_new], ignore_index=True)
-            else:
-                df_concat = df_summary_new
-            df_concat = df_concat.sort_values('F1_Score', ascending=False)
-            df_concat.to_excel(writer, sheet_name='Per_File_Summary', index=False)
-
-            # Anomaly_Detection_Stats
-            if 'Anomaly_Detection_Stats' in existing.sheet_names:
-                df_old = pd.read_excel(save_path, sheet_name='Anomaly_Detection_Stats')
-                df_anom_concat = pd.concat([df_old, df_anomaly_new], ignore_index=True)
-            else:
-                df_anom_concat = df_anomaly_new
-            df_anom_concat.to_excel(writer, sheet_name='Anomaly_Detection_Stats', index=False)
-
-            # Overall stats recomputed from summary
-            df_all = df_concat
-            total_samples_all = int(df_all['Total_Samples'].sum()) if 'Total_Samples' in df_all.columns else 0
-            total_gt_all = int(df_all['Total_Anomalies_GT'].sum()) if 'Total_Anomalies_GT' in df_all.columns else 0
-            total_det_all = int(df_all['Detected_Anomalies'].sum()) if 'Detected_Anomalies' in df_all.columns else 0
-            overall_stats = {
-                'Metric': [
-                    'Total_Files_Processed',
-                    'Total_Samples_Across_All_Files',
-                    'Total_GT_Anomalies',
-                    'Total_Detected_Anomalies',
-                    'Overall_Detection_Rate',
-                    'Overall_GT_Anomaly_Ratio',
-                    'Overall_Detection_Accuracy'
-                ],
-                'Value': [
-                    len(df_all),
-                    total_samples_all,
-                    total_gt_all,
-                    total_det_all,
-                    (total_det_all / total_samples_all) if total_samples_all > 0 else 0.0,
-                    (total_gt_all / total_samples_all) if total_samples_all > 0 else 0.0,
-                    (total_det_all / total_gt_all) if total_gt_all > 0 else 0.0
-                ]
-            }
-            pd.DataFrame(overall_stats).to_excel(writer, sheet_name='Overall_Anomaly_Stats', index=False)
-
-            # Top performers from combined summary
-            df_concat.head(5).to_excel(writer, sheet_name='Top_5_Performers', index=False)
-
-            # Configuration: append rows
-            cfg_df_new = pd.DataFrame({'Parameter': list(config_info.keys()), 'Value': [str(config_info[k]) for k in config_info.keys()]})
-            if 'Configuration' in existing.sheet_names:
-                cfg_old = pd.read_excel(save_path, sheet_name='Configuration')
-                cfg_concat = pd.concat([cfg_old, cfg_df_new], ignore_index=True)
-            else:
-                cfg_concat = cfg_df_new
-            cfg_concat.to_excel(writer, sheet_name='Configuration', index=False)
-    
-    print(f"Comprehensive Excel file saved successfully with multiple sheets:")
-    print(f"  1. Per_File_Summary: Results for each individual file")
-    print(f"  2. Anomaly_Detection_Stats: Detailed anomaly detection per file")
-    print(f"  3. Overall_Anomaly_Stats: Overall anomaly detection statistics")
-    print(f"  4. Top_5_Performers: Best performing files")
-    print(f"  5. Configuration: Model and inference configuration")
-    print(f"  6. Detailed_Results: Complete threshold analysis results")
+    def plot_inference_results(self, data: np.ndarray, reconstruction: np.ndarray, 
+                              timestep_scores: np.ndarray, labels: np.ndarray = None,
+                              best_threshold: float = None, save_path: str = None):
+        """
+        Plot inference results: test data vs reconstruction and anomaly scores
+        
+        Args:
+            data: Original test data (features, time_steps)
+            reconstruction: Reconstructed data (features, time_steps)
+            timestep_scores: Anomaly scores for each timestep
+            labels: Ground truth labels (optional)
+            best_threshold: Best threshold found (optional)
+            save_path: Path to save plot
+        """
+        # Create figure with subplots
+        fig, axes = plt.subplots(2, 1, figsize=(15, 10))
+        
+        # Plot 1: Test Data vs Reconstruction
+        ax1 = axes[0]
+        
+        # Plot first few features for visualization
+        num_features_to_plot = min(3, data.shape[0])
+        colors = ['blue', 'red', 'green', 'orange', 'purple']
+        
+        for i in range(num_features_to_plot):
+            ax1.plot(data[i, :], label=f'Original Feature {i+1}', 
+                    color=colors[i % len(colors)], alpha=0.7, linewidth=1)
+            ax1.plot(reconstruction[i, :], label=f'Reconstruction Feature {i+1}', 
+                    color=colors[i % len(colors)], alpha=0.5, linewidth=1, linestyle='--')
+        
+        ax1.set_title('Test Data vs Reconstruction', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Time Steps')
+        ax1.set_ylabel('Value')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Add ground truth labels if available
+        if labels is not None:
+            # Create anomaly regions overlay
+            anomaly_regions = []
+            in_anomaly = False
+            start_idx = 0
+            
+            for i, label in enumerate(labels):
+                if label == 1 and not in_anomaly:
+                    start_idx = i
+                    in_anomaly = True
+                elif label == 0 and in_anomaly:
+                    anomaly_regions.append((start_idx, i-1))
+                    in_anomaly = False
+            
+            # Add last region if it ends with anomaly
+            if in_anomaly:
+                anomaly_regions.append((start_idx, len(labels)-1))
+            
+            # Highlight anomaly regions
+            for start, end in anomaly_regions:
+                ax1.axvspan(start, end, alpha=0.2, color='red', label='Ground Truth Anomalies' if start == anomaly_regions[0][0] else "")
+        
+        # Plot 2: Anomaly Scores
+        ax2 = axes[1]
+        
+        # Plot anomaly scores
+        ax2.plot(timestep_scores, label='Anomaly Score', color='purple', linewidth=1)
+        
+        # Add threshold line if available
+        if best_threshold is not None:
+            ax2.axhline(y=best_threshold, color='red', linestyle='--', 
+                       label=f'Best Threshold: {best_threshold:.4f}', linewidth=2)
+            
+            # Highlight detected anomalies
+            detected_anomalies = timestep_scores > best_threshold
+            anomaly_indices = np.where(detected_anomalies)[0]
+            if len(anomaly_indices) > 0:
+                ax2.scatter(anomaly_indices, timestep_scores[anomaly_indices], 
+                           color='red', s=10, alpha=0.6, label='Detected Anomalies')
+        
+        ax2.set_title('Anomaly Scores Over Time', fontsize=14, fontweight='bold')
+        ax2.set_xlabel('Time Steps')
+        ax2.set_ylabel('Anomaly Score')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        # Add statistics text
+        stats_text = f'Mean Score: {np.mean(timestep_scores):.4f}\n'
+        stats_text += f'Std Score: {np.std(timestep_scores):.4f}\n'
+        stats_text += f'Max Score: {np.max(timestep_scores):.4f}\n'
+        stats_text += f'Min Score: {np.min(timestep_scores):.4f}'
+        
+        if best_threshold is not None:
+            detected_count = np.sum(timestep_scores > best_threshold)
+            stats_text += f'\nDetected Anomalies: {detected_count}'
+            stats_text += f'\nDetection Rate: {detected_count/len(timestep_scores)*100:.2f}%'
+        
+        ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes, 
+                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        # Save plot if path provided
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"Plot saved to: {save_path}")
+        
+        plt.show()
 
 
 def main():
@@ -1523,11 +1036,11 @@ def main():
     parser = argparse.ArgumentParser(description='Contrastive Learning Model Inference')
     
     # Model arguments
-    parser.add_argument('--dataset', type=str, default='ucr',
-                       choices=['ecg', 'psm', 'nab', 'smap_msl', 'smd'],
+    parser.add_argument('--dataset', type=str, default='ecg',
+                       choices=['ecg', 'pd', 'psm', 'nab', 'smap_msl', 'smd', 'ucr', 'gesture'],
                        help='Type of dataset')
-    parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets/ucr/labeled',
-                       help='Path to test data')
+    parser.add_argument('--data_path', type=str, default=r'D:/Hoc_voi_cha_hanh/FPT/Hoc_rieng/ICIIT2025/MainModel/datasets',
+                       help='Base path to datasets directory')
     parser.add_argument('--model_path', type=str, default='D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\checkpoints_pd_min\pd_20250930_103524\best_model.pth',
                        help='Path to model checkpoint (if None, will use checkpoints/{dataset}/best_model.pth)')
     # Optional: specific test filename. If not provided, will try to read from config.json next to model_path
@@ -1553,12 +1066,18 @@ def main():
     # Output arguments
     parser.add_argument('--output_dir', type=str, default=None,
                        help='Directory to save results (if None, will use inference_results_{dataset})')
-    parser.add_argument('--save_plot', action='store_true',
-                       help='Save plot to file')
+    parser.add_argument('--save_plot', action='store_true', default=True,
+                       help='Save inference results plot to file')
     parser.add_argument('--save_excel', action='store_true', default=True,
                        help='Save threshold analysis results to Excel file')
     
     args = parser.parse_args()
+    
+    # Get dataset-specific paths
+    dataset_paths = get_dataset_paths(args.dataset, args.data_path)
+    print(f"Dataset: {args.dataset}")
+    print(f"Test path: {dataset_paths['test_path']}")
+    print(f"Train path: {dataset_paths['train_path']}")
     
     # Set default model path if not provided
     if args.model_path is None:
@@ -1618,7 +1137,64 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Initialize inference
+    print(f"\nInitializing inference with model: {args.model_path}")
     inference = ContrastiveInference(args.model_path)
+    
+    # Auto-detect dataset_name from config if not provided
+    if args.dataset_name is None:
+        config_path = os.path.join(os.path.dirname(args.model_path), 'config.json')
+        if os.path.exists(config_path):
+            import json
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            args.dataset_name = config.get('dataset_name', None)
+            if args.dataset_name:
+                print(f"Auto-detected dataset_name from config: {args.dataset_name}")
+            else:
+                print("No dataset_name found in config, will process all available test files")
+        else:
+            print("No config.json found, will process all available test files")
+    
+    # Determine single test file to process
+    test_file = None
+    if args.dataset_name:
+        # Process specific file
+        if args.dataset in ['psm']:
+            test_file = os.path.join(dataset_paths['test_path'], args.dataset_name)
+        else:
+            test_file = os.path.join(dataset_paths['test_path'], args.dataset_name)
+        
+        if not os.path.exists(test_file):
+            print(f"❌ Specified test file not found: {test_file}")
+            return
+    else:
+        # Find the first available test file
+        import glob
+        if args.dataset in ['psm']:
+            # PSM uses CSV files
+            pattern = os.path.join(dataset_paths['test_path'], 'test.csv')
+            files = glob.glob(pattern)
+        elif args.dataset in ['nab', 'smap_msl', 'smd', 'ucr']:
+            # These datasets use numpy files
+            pattern = os.path.join(dataset_paths['test_path'], '*_test.npy')
+            files = glob.glob(pattern)
+        else:
+            # ECG, PD, Gesture use pickle files
+            pattern = os.path.join(dataset_paths['test_path'], '*.pkl')
+            files = glob.glob(pattern)
+        
+        if not files:
+            print(f"❌ No test files found for dataset {args.dataset}")
+            print(f"Expected pattern: {dataset_paths['file_pattern']}")
+            print(f"Search path: {dataset_paths['test_path']}")
+            return
+        
+        # Use the first file found
+        test_file = files[0]
+        print(f"Auto-selected first available test file: {os.path.basename(test_file)}")
+    
+    print(f"Processing single test file: {os.path.basename(test_file)}")
+    
     # Configure masking
     inference.mask_mode = args.mask_mode
     inference.mask_ratio = max(0.0, min(1.0, float(args.mask_ratio)))
@@ -1638,463 +1214,179 @@ def main():
     else:
         print(f"Using batch_size from command line: {args.batch_size}")
     
-    # Load test data
-    print(f"Loading test data from {args.data_path}")
+    # Load test data and run inference on single file
+    print(f"\nStarting inference on single file...")
     
-    # Try to read dataset_name from the model's config.json if CLI not provided
-    config_dataset_name = None
+    print(f"\n{'='*60}")
+    print(f"PROCESSING: {os.path.basename(test_file)}")
+    print(f"{'='*60}")
+    
     try:
-        if not args.dataset_name:
-            cfg_path = os.path.join(os.path.dirname(args.model_path), 'config.json')
-            if os.path.exists(cfg_path):
-                import json
-                with open(cfg_path, 'r') as _f:
-                    _cfg = json.load(_f)
-                    config_dataset_name = _cfg.get('dataset_name')
-                    if config_dataset_name:
-                        print(f"Using dataset_name from config.json: {config_dataset_name}")
-    except Exception as _e:
-        print(f"Warning: unable to read dataset_name from config.json: {_e}")
-    
-    if args.dataset == 'ecg':
-        # Load ECG data - test each file separately
-        test_path = os.path.join(args.data_path, "labeled", "test")
-        # Prefer CLI --dataset_name. If absent, fall back to config.json's dataset_name.
-        chosen_name = None
-        if hasattr(args, 'dataset_name') and args.dataset_name:
-            chosen_name = args.dataset_name
-        elif config_dataset_name:
-            chosen_name = config_dataset_name
-
-        if chosen_name:
-            chosen_path = os.path.join(test_path, chosen_name)
-            if os.path.exists(chosen_path):
-                test_files = [chosen_name]
-                print(f"Selected single test file: {chosen_name}")
-            else:
-                print(f"Specified dataset_name not found in test folder: {chosen_name}")
-                test_files = []
+        # Load test data based on dataset type
+        if args.dataset in ['psm']:
+            # PSM uses CSV files
+            test_data, labels = inference.load_psm_data(test_file)
+        elif args.dataset in ['nab', 'smap_msl', 'smd', 'ucr']:
+            # These datasets use numpy files
+            test_data, labels = inference.load_numpy_data(test_file, args.dataset)
         else:
-            test_files = [f for f in os.listdir(test_path) if f.endswith('.pkl')]
+            # ECG, PD, Gesture use pickle files
+            test_data, labels = inference.load_pickle_data(test_file)
         
-        if not test_files:
-            print("No test files found!")
+        if test_data is None:
+            print(f"❌ Failed to load data from {test_file}")
             return
         
-        print(f"Found {len(test_files)} test files. Testing each file separately...")
+        print(f"✅ Loaded data shape: {test_data.shape}")
+        if labels is not None:
+            print(f"✅ Loaded labels shape: {labels.shape}")
+            print(f"   Anomaly ratio: {np.sum(labels) / len(labels) * 100:.2f}%")
+        else:
+            print("⚠️ No labels available")
         
-        # Store results for each file
-        all_file_results = []
-        all_threshold_results = []
-        
-        # Process each test file
-        for file_idx, test_file in enumerate(test_files):
-            print(f"\n{'='*60}")
-            print(f"PROCESSING FILE {file_idx + 1}/{len(test_files)}: {test_file}")
-            print(f"{'='*60}")
-            
-            test_path_full = os.path.join(test_path, test_file)
-            
-            try:
-                with open(test_path_full, 'rb') as f:
-                    test_data = pickle.load(f)
-                
-                if isinstance(test_data, list):
-                    test_data = np.array(test_data)
-                
-                # Ensure correct shape (features, time_steps)
-                if test_data.shape[0] > test_data.shape[1]:
-                    test_data = test_data.T
-                
-                # Extract features and labels from ECG data
-                # ECG data format: [feature1, feature2, label] where label: 0=normal, 1=anomaly
-                if test_data.shape[0] >= 3:  # Has at least 3 rows (2 features + 1 label)
-                    # Extract only the 2 features for model input (model is configured with input_dim=2)
-                    features = test_data[:2, :]  # First 2 rows are features
-                    labels = test_data[2, :]     # Third row is labels (0=normal, 1=anomaly)
-
-                    # Normalize test features using train min/max (same as training)
-                    # Try to locate the corresponding train file by name
-                    train_file_path = os.path.join(args.data_path, "labeled", "train", test_file)
-                    train_min = None
-                    train_max = None
-                    if os.path.exists(train_file_path):
-                        try:
-                            with open(train_file_path, 'rb') as f:
-                                train_data_raw = pickle.load(f)
-                            if isinstance(train_data_raw, list):
-                                train_data_raw = np.array(train_data_raw)
-                            if train_data_raw.shape[0] > train_data_raw.shape[1]:
-                                train_data_raw = train_data_raw.T
-                            # Use only the first 2 rows (features) to compute global min/max
-                            train_feats = train_data_raw[:2, :]
-                            train_min = np.min(train_feats)
-                            train_max = np.max(train_feats)
-                        except Exception as e:
-                            print(f"Warning: failed to load train file for normalization: {e}")
-
-                    test_data = features.astype(np.float32)
-
-                    # Apply global min-max normalization to [0, 1]
-                    if train_min is not None and train_max is not None:
-                        print("Normalizing test features using train global min/max (as in training)...")
-                        denom = (train_max - train_min)
-                        if denom > 0:
-                            test_data = (test_data - train_min) / denom
-                    else:
-                        print("Train file not found. Falling back to test-only global min/max normalization...")
-                        test_min = np.min(test_data)
-                        test_max = np.max(test_data)
-                        denom = (test_max - test_min)
-                        if denom > 0:
-                            test_data = (test_data - test_min) / denom
-
-                    print(f"ECG data loaded: {test_data.shape[0]} features, {test_data.shape[1]} time steps")
-                    print(f"Labels shape: {labels.shape}")
-                    print(f"Normal samples: {np.sum(labels == 0)} ({np.sum(labels == 0) / len(labels) * 100:.1f}%)")
-                    print(f"Anomaly samples: {np.sum(labels == 1)} ({np.sum(labels == 1) / len(labels) * 100:.1f}%)")
-                else:
-                    # Fallback: no labels available
-                    labels = None
-                    print("ECG data loaded without labels")
-                
-                # Run inference on this file
-                print(f"\nRunning inference on {test_file}...")
-                
-                # Sliding window inference (window-level outputs)
-                reconstruction_errors, window_anomaly_scores, absolute_errors = inference.sliding_window_inference(
-                    test_data, args.window_size, args.stride, args.batch_size
-                )
-
-                # Build full-sequence reconstruction from window reconstruction errors
-                reconstruction = inference.create_full_reconstruction(
-                    test_data, reconstruction_errors, args.window_size, args.stride
-                )
-
-                # Convert window absolute errors to per-timestep scores following the required strategy
-                timestep_scores = inference.compute_timestep_scores(
-                    absolute_errors, test_data.shape[1], args.window_size, args.stride
-                )
-                
-                # Store file-specific results
-                file_result = {
-                    'filename': test_file,
-                    'data_shape': test_data.shape,
-                    'reconstruction': reconstruction,
-                    'timestep_scores': timestep_scores,
-                    'absolute_errors': absolute_errors,
-                    'window_anomaly_scores': window_anomaly_scores,
-                    'reconstruction_errors': reconstruction_errors,
-                    'labels': labels
-                }
-                all_file_results.append(file_result)
-                
-                # Ensure labels and timestep_scores have the same length
-                if labels is not None and len(labels) != len(timestep_scores):
-                    print(f"Info: Labels length ({len(labels)}) != Timestep scores length ({len(timestep_scores)})")
-                    print(f"This is normal for sliding window inference. Adjusting labels to match timestep scores length...")
-                    
-                    # Adjust labels to match timestep_scores length
-                    if len(labels) > len(timestep_scores):
-                        # Truncate labels to match timestep scores (common case)
-                        original_length = len(labels)
-                        labels = labels[:len(timestep_scores)]
-                        print(f"Truncated labels from {original_length} to {len(labels)}")
-                    else:
-                        # Pad labels with the last label value (rare case)
-                        original_length = len(labels)
-                        last_label = labels[-1] if len(labels) > 0 else 0
-                        padding = np.full(len(timestep_scores) - len(labels), last_label)
-                        labels = np.concatenate([labels, padding])
-                        print(f"Padded labels from {original_length} to {len(labels)}")
-                    
-                    print(f"Final labels length: {len(labels)}")
-                
-                # Initialize threshold_results
-                threshold_results = None
-                
-                # Run threshold analysis if requested
-                # Always use threshold range for ECG data
-                if True:
-                    print(f"Running threshold analysis for {test_file}...")
-                    threshold_results = inference.evaluate_threshold_range(
-                        timestep_scores, labels, args.num_thresholds, use_adjustment=True
-                    )
-                    
-                    # Add filename and additional info to threshold results
-                    threshold_results['filename'] = test_file
-                    threshold_results['data_shape'] = test_data.shape
-                    threshold_results['total_samples'] = len(labels) if labels is not None else 0
-                    threshold_results['total_anomalies'] = np.sum(labels) if labels is not None else 0
-                    
-                    # Add detected anomalies info using best threshold
-                    if 'best_threshold' in threshold_results and 'best_metrics' in threshold_results:
-                        best_threshold = threshold_results['best_threshold']
-                        predictions = timestep_scores > best_threshold
-                        threshold_results['detected_anomalies'] = np.sum(predictions)
-                        threshold_results['anomaly_detection_rate'] = np.sum(predictions) / len(predictions) if len(predictions) > 0 else 0.0
-                        
-                        # Print file-specific results
-                        print(f"  File: {test_file}")
-                        print(f"  Total samples: {threshold_results['total_samples']}")
-                        print(f"  Total anomalies (GT): {threshold_results['total_anomalies']}")
-                        print(f"  Detected anomalies: {threshold_results['detected_anomalies']}")
-                        print(f"  Detection rate: {threshold_results['anomaly_detection_rate']:.4f}")
-                        print(f"  Best F1-Score: {threshold_results['best_metrics']['f1']:.4f}")
-                        print(f"  Best Threshold: {best_threshold:.6f}")
-                    
-                    all_threshold_results.append(threshold_results)
-                    
-                    # Plot threshold analysis for this file
-                    if args.save_plot:
-                        threshold_plot_path = os.path.join(args.output_dir, f'threshold_analysis_{test_file.replace(".pkl", "")}.png')
-                        inference.plot_threshold_analysis(threshold_results, threshold_plot_path)
-                else:
-                    # If not using threshold range, still calculate basic stats
-                    if labels is not None:
-                        default_threshold = np.percentile(timestep_scores, 95)
-                        predictions = timestep_scores > default_threshold
-                        basic_stats = {
-                            'filename': test_file,
-                            'data_shape': test_data.shape,
-                            'total_samples': len(labels),
-                            'total_anomalies': np.sum(labels),
-                            'detected_anomalies': np.sum(predictions),
-                            'anomaly_detection_rate': np.sum(predictions) / len(predictions) if len(predictions) > 0 else 0.0,
-                            'best_threshold': default_threshold
-                        }
-                        print(f"  File: {test_file} (basic analysis)")
-                        print(f"  Total samples: {basic_stats['total_samples']}")
-                        print(f"  Total anomalies (GT): {basic_stats['total_anomalies']}")
-                        print(f"  Detected anomalies: {basic_stats['detected_anomalies']}")
-                        print(f"  Detection rate: {basic_stats['anomaly_detection_rate']:.4f}")
-                        print(f"  Threshold (95th percentile): {default_threshold:.6f}")
-                
-                # Plot results for this file
-                if args.save_plot:
-                    best_plot_path = os.path.join(args.output_dir, f'best_threshold_results_{test_file.replace(".pkl", "")}.png')
-                    if threshold_results and 'best_threshold' in threshold_results:
-                        # Check if best_metrics has the correct keys
-                        best_metrics = threshold_results['best_metrics']
-                        if 'f1' not in best_metrics:
-                            print(f"Warning: best_metrics missing 'f1' key. Available keys: {list(best_metrics.keys())}")
-                            # Try to fix if it has 'f1_score' instead
-                            if 'f1_score' in best_metrics:
-                                best_metrics['f1'] = best_metrics['f1_score']
-                                print("Fixed: copied 'f1_score' to 'f1'")
-                            else:
-                                best_metrics['f1'] = 0.0
-                                print("Added default 'f1' = 0.0")
-                        
-                        inference.plot_best_threshold_results(
-                            test_data, reconstruction, labels, timestep_scores,
-                            threshold_results['best_threshold'], best_metrics,
-                            best_plot_path
-                        )
-                    else:
-                        # Use a default threshold
-                        default_threshold = np.percentile(timestep_scores, 95)
-                        default_metrics = {
-                            'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'accuracy': 0.0
-                        }
-                        inference.plot_best_threshold_results(
-                            test_data, reconstruction, labels, timestep_scores,
-                            default_threshold, default_metrics, best_plot_path
-                        )
-                
-                print(f"Completed processing {test_file}")
-                
-            except Exception as e:
-                print(f"Error processing {test_file}: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-        
-        # Calculate average results across all files
-        print(f"\n{'='*80}")
-        print(f"CALCULATING AVERAGE RESULTS ACROSS ALL FILES")
-        print(f"{'='*80}")
-        
-        if all_threshold_results:
-            # Calculate basic metrics
-            avg_results = calculate_average_metrics(all_threshold_results)
-            print(f"Total files processed: {avg_results['num_files']}")
-            
-            # Save comprehensive results to Excel
-            if args.save_excel:
-                # Use the same fixed Excel filename for consistency
-                # Use distinct filename for single-file vs multi-file runs
-                if hasattr(args, 'dataset_name') and args.dataset_name:
-                    base = os.path.splitext(os.path.basename(args.dataset_name))[0]
-                    excel_path = os.path.join(args.output_dir, f'{args.dataset}_single_{base}_results.xlsx')
-                else:
-                    excel_path = os.path.join(args.output_dir, f'{args.dataset}_all_models_results.xlsx')
-                save_comprehensive_results_to_excel(all_threshold_results, avg_results, excel_path, args)
-        
-        # Save combined results
-        results = {
-            'all_file_results': all_file_results,
-            'all_threshold_results': all_threshold_results,
-            'test_files': test_files,
-            'window_size': args.window_size,
-            'stride': args.stride,
-            'batch_size': args.batch_size,
-            'num_thresholds': args.num_thresholds
-        }
-        
-        results_path = os.path.join(args.output_dir, 'comprehensive_inference_results.npz')
-        np.savez(results_path, **results)
-        print(f"Comprehensive results saved to {results_path}")
-        
-    else:
-        # For other datasets, use dataloader
-        dataloaders = create_dataloaders(
-            dataset_type=args.dataset,
-            data_path=args.data_path,
-            window_size=args.window_size,
-            dataset_name=(args.dataset_name if hasattr(args, 'dataset_name') and args.dataset_name else config_dataset_name),
-            batch_size=1,
-            num_workers=0
+        # Run inference
+        print(f"Running inference with window_size={args.window_size}, stride={args.stride}...")
+        timestep_scores, reconstruction = inference.run_inference(
+            test_data, args.window_size, args.stride, args.batch_size
         )
         
-        # Get test data
-        test_dataset = dataloaders['test'].dataset
-        test_data = test_dataset.data
-        labels = test_dataset.labels
-    
-    print(f"Test data shape: {test_data.shape}")
-    
-    # Perform inference
-    print("Starting inference...")
-    reconstruction_errors, anomaly_scores, absolute_errors = inference.sliding_window_inference(
-        test_data, args.window_size, args.stride, args.batch_size
-    )
-    
-    # Create full reconstruction
-    reconstruction = inference.create_full_reconstruction(
-        test_data, reconstruction_errors, args.window_size, args.stride
-    )
-    
-    # Compute per-timestep scores using new strategy:
-    # Window 0: all timesteps, Window 1+: only last timestep
-    timestep_scores = inference.compute_timestep_scores(
-        absolute_errors, test_data.shape[1], args.window_size, args.stride
-    )
-    
-    # Ensure labels and timestep_scores have the same length
-    if labels is not None and len(labels) != len(timestep_scores):
-        print(f"Info: Labels length ({len(labels)}) != Timestep scores length ({len(timestep_scores)})")
-        print(f"This is normal for sliding window inference. Adjusting labels to match timestep scores length...")
+        # Adjust labels length if needed
+        if labels is not None:
+            if len(labels) > len(timestep_scores):
+                # Truncate labels to match timestep scores
+                original_length = len(labels)
+                labels = labels[:len(timestep_scores)]
+                print(f"Truncated labels from {original_length} to {len(labels)}")
+            elif len(labels) < len(timestep_scores):
+                # Pad labels with the last label value
+                original_length = len(labels)
+                last_label = labels[-1] if len(labels) > 0 else 0
+                padding = np.full(len(timestep_scores) - len(labels), last_label)
+                labels = np.concatenate([labels, padding])
+                print(f"Padded labels from {original_length} to {len(labels)}")
+            
+            print(f"Final labels length: {len(labels)}")
         
-        # Adjust labels to match timestep_scores length
-        if len(labels) > len(timestep_scores):
-            # Truncate labels to match timestep scores (common case)
-            original_length = len(labels)
-            labels = labels[:len(timestep_scores)]
-            print(f"Truncated labels from {original_length} to {len(labels)}")
-        else:
-            # Pad labels with the last label value (rare case)
-            original_length = len(labels)
-            last_label = labels[-1] if len(labels) > 0 else 0
-            padding = np.full(len(timestep_scores) - len(labels), last_label)
-            labels = np.concatenate([labels, padding])
-            print(f"Padded labels from {original_length} to {len(labels)}")
+        # Initialize threshold_results
+        threshold_results = None
         
-        print(f"Final labels length: {len(labels)}")
-    
-    # Evaluate performance across threshold range
-    print(f"\nEvaluating performance across {args.num_thresholds} threshold values...")
-    threshold_results = inference.evaluate_threshold_range(
-        timestep_scores, labels, 
-        num_thresholds=args.num_thresholds, use_adjustment=True
-    )
-    
-    # Use best threshold for final results
-    threshold_value = threshold_results['best_threshold']
-    timestep_anomalies = timestep_scores > threshold_value
-    
-    # Convert timestep anomalies to window anomalies
-    anomalies = np.zeros(len(anomaly_scores), dtype=bool)
-    for i, is_anomaly in enumerate(timestep_anomalies):
-        if is_anomaly:
-            window_idx = i // args.stride
-            if window_idx < len(anomalies):
-                anomalies[window_idx] = True
+        # Run threshold analysis
+        if labels is not None:
+            print(f"Running threshold analysis for {os.path.basename(test_file)}...")
+            threshold_results = inference.evaluate_threshold_range(
+                timestep_scores, labels, args.num_thresholds, use_adjustment=True
+            )
+            
+            # Add filename and additional info to threshold results
+            threshold_results['filename'] = os.path.basename(test_file)
+            threshold_results['data_shape'] = test_data.shape
+            threshold_results['total_samples'] = len(labels)
+            threshold_results['total_anomalies'] = np.sum(labels)
+            
+            # Add detected anomalies info using best threshold
+            if 'best_threshold' in threshold_results and 'best_metrics' in threshold_results:
+                best_threshold = threshold_results['best_threshold']
+                predictions = timestep_scores > best_threshold
+                threshold_results['detected_anomalies'] = np.sum(predictions)
+                threshold_results['anomaly_detection_rate'] = np.sum(predictions) / len(predictions) if len(predictions) > 0 else 0.0
                 
-    performance = threshold_results['best_metrics']
-    
-    # Plot threshold analysis
-    threshold_plot_path = os.path.join(args.output_dir, 'threshold_analysis.png') if args.save_plot else None
-    inference.plot_threshold_analysis(threshold_results, threshold_plot_path)
-        
-    # Save results to Excel
-    if args.save_excel:
-        # Use a fixed Excel filename to accumulate results from multiple models
-        # Use distinct filename for single-file vs multi-file runs
-        if hasattr(args, 'dataset_name') and args.dataset_name:
-            base = os.path.splitext(os.path.basename(args.dataset_name))[0]
-            excel_path = os.path.join(args.output_dir, f'{args.dataset}_single_{base}_results.xlsx')
+                # Print file-specific results
+                print(f"  File: {os.path.basename(test_file)}")
+                print(f"  Total samples: {threshold_results['total_samples']}")
+                print(f"  Total anomalies (GT): {threshold_results['total_anomalies']}")
+                print(f"  Detected anomalies: {threshold_results['detected_anomalies']}")
+                print(f"  Detection rate: {threshold_results['anomaly_detection_rate']:.4f}")
+                print(f"  Best F1-Score: {threshold_results['best_metrics']['f1']:.4f}")
+                print(f"  Best Threshold: {best_threshold:.6f}")
+            
+                
+        # Evaluate performance using best threshold
+        performance = None
+        if labels is not None and threshold_results:
+            # Use best threshold to detect anomalies
+            best_threshold = threshold_results['best_threshold']
+            timestep_anomalies = timestep_scores > best_threshold
+            
+            performance = inference.evaluate_performance(
+                labels, timestep_anomalies, args.window_size, args.stride, use_adjustment=True
+            )
+            performance['filename'] = os.path.basename(test_file)
+            
+            print(f"\n🎯 Performance for {os.path.basename(test_file)}:")
+            print(f"  F1-Score: {performance['f1_score']:.4f}")
+            print(f"  Precision: {performance['precision']:.4f}")
+            print(f"  Recall: {performance['recall']:.4f}")
+            print(f"  Accuracy: {performance['accuracy']:.4f}")
         else:
-            excel_path = os.path.join(args.output_dir, f'{args.dataset}_all_models_results.xlsx')
+            print(f"\n📊 Statistics for {os.path.basename(test_file)}:")
+            print(f"  Total timesteps processed: {len(timestep_scores)}")
+            print(f"  Mean anomaly score: {np.mean(timestep_scores):.6f}")
+            print(f"  Std anomaly score: {np.std(timestep_scores):.6f}")
+            print(f"  Min anomaly score: {np.min(timestep_scores):.6f}")
+            print(f"  Max anomaly score: {np.max(timestep_scores):.6f}")
         
-        # Load additional information from config and checkpoint
+        # Plot inference results
+        if args.save_plot:
+            plot_path = os.path.join(args.output_dir, f'inference_results_{os.path.basename(test_file).replace(".pkl", "").replace(".npy", "").replace(".csv", "")}.png')
+            
+            # Get best threshold if available
+            best_threshold = None
+            if threshold_results and 'best_threshold' in threshold_results:
+                best_threshold = threshold_results['best_threshold']
+            
+            inference.plot_inference_results(
+                test_data, reconstruction, timestep_scores, labels, best_threshold, plot_path
+            )
+        
+    except Exception as e:
+        print(f"❌ Error processing {test_file}: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+    
+    # Save results for single file
+    if threshold_results:
+        print(f"\n{'='*60}")
+        print("SAVING RESULTS")
+        print(f"{'='*60}")
+        
+        # Save threshold analysis results to Excel
+        excel_path = os.path.join(args.output_dir, f'threshold_analysis_{args.dataset}_{os.path.basename(test_file).replace(".pkl", "").replace(".npy", "").replace(".csv", "")}.xlsx')
+        
+        # Get additional info from config
         additional_info = {}
-        
-        # Load config information
         config_path = os.path.join(os.path.dirname(args.model_path), 'config.json')
         if os.path.exists(config_path):
-            try:
-                import json
-                with open(config_path, 'r') as f:
-                    config_data = json.load(f)
-                    additional_info.update({
-                    'Use_Contrastive': config_data.get('use_contrastive', 'Unknown'),
-                    'Contrastive_Weight': config_data.get('contrastive_weight', 'Unknown'),
-                    'Reconstruction_Weight': config_data.get('reconstruction_weight', 'Unknown'),
-                    'Temperature': config_data.get('temperature', 'Unknown'),
-                    'D_Model': config_data.get('d_model', 'Unknown'),
-                    'Projection_Dim': config_data.get('projection_dim', 'Unknown'),
-                    'Transformer_Layers': config_data.get('transformer_layers', 'Unknown'),
-                    'TCN_Layers': config_data.get('tcn_num_layers', 'Unknown'),
-                    'Learning_Rate': config_data.get('learning_rate', 'Unknown'),
-                    'Weight_Decay': config_data.get('weight_decay', 'Unknown'),
-                    'Epsilon': config_data.get('epsilon', 'Unknown'),
-                    'Training_Batch_Size': config_data.get('batch_size', 'Unknown'),
-                    'Num_Epochs': config_data.get('num_epochs', 'Unknown'),
-                    'Training_Device': config_data.get('device', 'Unknown'),
-                    'Seed': config_data.get('seed', 'Unknown'),
-                    'Mask_Mode': config_data.get('mask_mode', 'Unknown'),
-                    'Mask_Ratio': config_data.get('mask_ratio', 'Unknown'),
-                    'Mask_Seed': config_data.get('mask_seed', 'Unknown')
-                    })
-            except Exception as e:
-                print(f"Warning: Could not load config.json: {e}")
+            import json
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            additional_info = {
+                'Aug_nhead': config.get('aug_nhead', 'Unknown'),
+                'Aug_num_layers': config.get('aug_num_layers', 'Unknown'),
+                'Aug_tcn_kernel_size': config.get('aug_tcn_kernel_size', 'Unknown'),
+                'Aug_tcn_num_layers': config.get('aug_tcn_num_layers', 'Unknown'),
+                'Aug_dropout': config.get('aug_dropout', 'Unknown'),
+                'Aug_temperature': config.get('aug_temperature', 'Unknown'),
+                'Learning_Rate': config.get('learning_rate', 'Unknown'),
+                'Weight_Decay': config.get('weight_decay', 'Unknown'),
+                'Epsilon': config.get('epsilon', 'Unknown'),
+                'Num_Epochs': config.get('num_epochs', 'Unknown'),
+                'Use_LR_Scheduler': config.get('use_lr_scheduler', 'Unknown'),
+                'Scheduler_Type': config.get('scheduler_type', 'Unknown'),
+                'Use_Wandb': config.get('use_wandb', 'Unknown'),
+                'Project_Name': config.get('project_name', 'Unknown'),
+                'Experiment_Name': config.get('experiment_name', 'Unknown'),
+                'Dataset_Name': config.get('dataset_name', 'Unknown'),
+                'Data_Path': config.get('data_path', 'Unknown'),
+            }
         
-        # Load checkpoint information for best loss
-        try:
-            import torch
-            checkpoint = torch.load(args.model_path, map_location='cpu')
-            additional_info.update({
-                'Best_Training_Loss': checkpoint.get('best_loss', 'Unknown'),
-                'Training_Epoch': checkpoint.get('epoch', 'Unknown'),
-                'Has_Optimizer': checkpoint.get('optimizer_state_dict') is not None,
-                'Has_Scheduler': checkpoint.get('scheduler_state_dict') is not None,
-                'Contrastive_Weight_Used': checkpoint.get('contrastive_weight', 'Unknown'),
-                'Reconstruction_Weight_Used': checkpoint.get('reconstruction_weight', 'Unknown')
-            })
-        except Exception as e:
-            print(f"Warning: Could not load checkpoint info: {e}")
-        
-        # Prepare config information
         config_info = {
-            'Dataset_Type': args.dataset,
-            'Data_Path': args.data_path,
+            'Dataset': args.dataset,
             'Model_Path': args.model_path,
             'Window_Size': args.window_size,
             'Stride': args.stride,
-            'Inference_Batch_Size': args.batch_size,
+            'Batch_Size': args.batch_size,
             'Num_Thresholds': args.num_thresholds,
-            'Use_Threshold_Range': True,
             'Mask_Mode': args.mask_mode,
             'Mask_Ratio': args.mask_ratio,
             'Mask_Seed': args.mask_seed,
@@ -2105,21 +1397,9 @@ def main():
             'Model_Parameters': sum(p.numel() for p in inference.model.parameters()),
             'Device': inference.device,
             'Model_Architecture': 'ContrastiveModel',
-            # Encoder hyperparameters
-            'Enc_d_model': getattr(inference.model, 'd_model', 'Unknown'),
-            'Enc_nhead': None,  # Not stored directly on model; best-effort via config above
-            'Enc_transformer_layers': None,
-            'Enc_tcn_kernel_size': None,
-            'Enc_tcn_num_layers': None,
-            # Augmentation hyperparameters (from config if present)
-            'Aug_nhead': additional_info.get('Aug_nhead', 'Unknown'),
-            'Aug_num_layers': additional_info.get('Aug_num_layers', 'Unknown'),
-            'Aug_tcn_kernel_size': additional_info.get('Aug_tcn_kernel_size', 'Unknown'),
-            'Aug_tcn_num_layers': additional_info.get('Aug_tcn_num_layers', 'Unknown'),
-            'Aug_dropout': additional_info.get('Aug_dropout', 'Unknown'),
-            'Aug_temperature': additional_info.get('Aug_temperature', 'Unknown'),
+            'Test_File': os.path.basename(test_file),
             'Best_Threshold': threshold_results['best_threshold'],
-            'Best_F1_Score': threshold_results['best_f1'],
+            'Best_F1_Score': threshold_results['best_metrics']['f1'],
             'Best_Precision': threshold_results['best_metrics']['precision'],
             'Best_Recall': threshold_results['best_metrics']['recall'],
             'Best_Accuracy': threshold_results['best_metrics']['accuracy']
@@ -2130,89 +1410,20 @@ def main():
         
         inference.save_threshold_results_to_excel(threshold_results, excel_path, config_info)
         
-        # Create model comparison sheet if multiple models exist
-        inference.create_model_comparison_sheet(excel_path)
-        
-        # Plot results with best threshold
-        best_plot_path = os.path.join(args.output_dir, 'best_threshold_results.png') if args.save_plot else None
-        # Check if best_metrics has the correct keys
-        best_metrics = threshold_results['best_metrics']
-        if 'f1' not in best_metrics:
-            print(f"Warning: best_metrics missing 'f1' key. Available keys: {list(best_metrics.keys())}")
-            # Try to fix if it has 'f1_score' instead
-            if 'f1_score' in best_metrics:
-                best_metrics['f1'] = best_metrics['f1_score']
-                print("Fixed: copied 'f1_score' to 'f1'")
-            else:
-                best_metrics['f1'] = 0.0
-                print("Added default 'f1' = 0.0")
-        
-        inference.plot_best_threshold_results(
-            test_data, reconstruction, labels, timestep_scores,
-            threshold_results['best_threshold'], best_metrics,
-            best_plot_path
-        )
-        
+        print(f"✅ Results saved to: {excel_path}")
     
-    # Evaluate performance
-    if labels is not None:
-        performance = inference.evaluate_performance(
-            labels, anomalies, args.window_size, args.stride, use_adjustment=True
-        )
-        print("\n" + "="*60)
-        print("ECG ANOMALY DETECTION PERFORMANCE")
-        print("="*60)
-        print(f"🎯 F1-Score: {performance['f1_score']:.4f}")
-        print(f"📊 Precision: {performance['precision']:.4f}")
-        print(f"📈 Recall: {performance['recall']:.4f}")
-        print(f"✅ Accuracy: {performance['accuracy']:.4f}")
-        print("-" * 60)
-        print(f"True Positives: {performance['true_positives']}")
-        print(f"False Positives: {performance['false_positives']}")
-        print(f"False Negatives: {performance['false_negatives']}")
-        print(f"True Negatives: {performance['true_negatives']}")
-        print("="*60)
-    else:
-        print("\n" + "="*60)
-        print("ECG ANOMALY DETECTION STATISTICS")
-        print("="*60)
-        print(f"Total windows processed: {len(anomaly_scores)}")
-        print(f"Anomalous windows detected: {np.sum(anomalies)}")
-        print(f"Anomaly rate: {np.sum(anomalies) / len(anomalies) * 100:.2f}%")
-        print(f"Mean anomaly score: {np.mean(anomaly_scores):.6f}")
-        print(f"Std anomaly score: {np.std(anomaly_scores):.6f}")
-        print(f"Min anomaly score: {np.min(anomaly_scores):.6f}")
-        print(f"Max anomaly score: {np.max(anomaly_scores):.6f}")
-        print("="*60)
+    print(f"\n{'='*60}")
+    print("INFERENCE COMPLETED SUCCESSFULLY")
+    print(f"{'='*60}")
+    print(f"Processed file: {os.path.basename(test_file)}")
+    print(f"Results saved to: {args.output_dir}")
     
-    # Plot results
-    plot_path = os.path.join(args.output_dir, 'inference_results.png') if args.save_plot else None
-    inference.plot_results(
-        test_data, reconstruction, labels, anomaly_scores, 
-        anomalies, args.window_size, args.stride, threshold_value, plot_path,
-        timestep_scores=timestep_scores, timestep_anomalies=timestep_anomalies
-    )
-    
-    # Save results
-    results = {
-        'reconstruction_errors': reconstruction_errors,
-        'anomaly_scores': anomaly_scores,
-        'absolute_errors': absolute_errors,
-        'anomalies': anomalies,
-        'reconstruction': reconstruction,
-        'performance': performance if labels is not None else None,
-        'threshold_value': float(threshold_value),
-        'timestep_scores': timestep_scores,
-        'timestep_anomalies': timestep_anomalies
-    }
-    
-    # Add threshold results
-    if 'threshold_results' in locals():
-        results['threshold_results'] = threshold_results
-    
-    results_path = os.path.join(args.output_dir, 'inference_results.npz')
-    np.savez(results_path, **results)
-    print(f"Results saved to {results_path}")
+    if performance:
+        print(f"\n📊 FINAL PERFORMANCE:")
+        print(f"  F1-Score: {performance['f1_score']:.4f}")
+        print(f"  Precision: {performance['precision']:.4f}")
+        print(f"  Recall: {performance['recall']:.4f}")
+        print(f"  Accuracy: {performance['accuracy']:.4f}")
 
 
 if __name__ == "__main__":

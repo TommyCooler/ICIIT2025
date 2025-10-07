@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Automated training and inference script for all dataset types
-Supports: ECG, PSM, NAB, SMAP-MSL, SMD, UCR, WADI, SWAT
+Supports: ECG, PD, Gesture, PSM, NAB, SMAP-MSL, SMD, UCR, WADI, SWAT
 """
 
 import os
@@ -18,6 +18,27 @@ OUTPUT_BASE = os.path.join(BASE, "src", "inference", "inference_results")
 
 # Dataset configurations
 DATASET_CONFIGS = {
+    'ucr': {
+        'data_path': os.path.join(DATASETS_DIR, "ucr"),
+        'train_dir': os.path.join(DATASETS_DIR, "ucr", "labeled"),
+        'test_dir': os.path.join(DATASETS_DIR, "ucr", "labeled"),
+        'file_pattern': "*_train.npy",
+        'output_dir': os.path.join(OUTPUT_BASE, "ucr")
+    },
+    'pd': {
+        'data_path': os.path.join(DATASETS_DIR, "pd"),
+        'train_dir': os.path.join(DATASETS_DIR, "pd", "labeled", "train"),
+        'test_dir': os.path.join(DATASETS_DIR, "pd", "labeled", "test"),
+        'file_pattern': "*.pkl",
+        'output_dir': os.path.join(OUTPUT_BASE, "pd")
+    },
+    'gesture': {
+        'data_path': os.path.join(DATASETS_DIR, "gesture"),
+        'train_dir': os.path.join(DATASETS_DIR, "gesture", "labeled", "train"),
+        'test_dir': os.path.join(DATASETS_DIR, "gesture", "labeled", "test"),
+        'file_pattern': "*.pkl",
+        'output_dir': os.path.join(OUTPUT_BASE, "gesture")
+    },
     'ecg': {
         'data_path': os.path.join(DATASETS_DIR, "ecg"),
         'train_dir': os.path.join(DATASETS_DIR, "ecg", "labeled", "train"),
@@ -32,16 +53,11 @@ DATASET_CONFIGS = {
         'file_pattern': "train.csv",  # PSM has single train/test files
         'output_dir': os.path.join(OUTPUT_BASE, "psm")
     },
-    'nab': {
-        'data_path': os.path.join(DATASETS_DIR, "nab"),
-        'train_dir': os.path.join(DATASETS_DIR, "nab"),
-        'test_dir': os.path.join(DATASETS_DIR, "nab"),
-        'file_pattern': "*_train.npy",
-        'output_dir': os.path.join(OUTPUT_BASE, "nab")
-    },
     'smap_msl': {
         'data_path': os.path.join(DATASETS_DIR, "smap_msl_"),
-        'processed_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
+        'train_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
+        'test_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
+        'file_pattern': "*_train.npy",
         'output_dir': os.path.join(OUTPUT_BASE, "smap_msl")
     },
     'smd': {
@@ -51,28 +67,111 @@ DATASET_CONFIGS = {
         'file_pattern': "*.npy",
         'output_dir': os.path.join(OUTPUT_BASE, "smd")
     },
-    'ucr': {
-        'data_path': os.path.join(DATASETS_DIR, "ucr", "labeled"),
-        'train_dir': os.path.join(DATASETS_DIR, "ucr", "labeled"),
-        'test_dir': os.path.join(DATASETS_DIR, "ucr", "labeled"),
-        'file_pattern': "*_train.npy",
-        'output_dir': os.path.join(OUTPUT_BASE, "ucr")
-    },
-    'wadi': {
-        'data_path': os.path.join(DATASETS_DIR, "wadi"),
-        'train_dir': os.path.join(DATASETS_DIR, "wadi"),
-        'test_dir': os.path.join(DATASETS_DIR, "wadi"),
-        'file_pattern': "*.csv",  # WADI typically has CSV files
-        'output_dir': os.path.join(OUTPUT_BASE, "wadi")
-    },
-    'swat': {
-        'data_path': os.path.join(DATASETS_DIR, "swat"),
-        'train_dir': os.path.join(DATASETS_DIR, "swat"),
-        'test_dir': os.path.join(DATASETS_DIR, "swat"),
-        'file_pattern': "*.csv",  # SWAT typically has CSV files
-        'output_dir': os.path.join(OUTPUT_BASE, "swat")
-    }
+    # 'nab': {
+    #     'data_path': os.path.join(DATASETS_DIR, "nab"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "nab"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "nab"),
+    #     'file_pattern': "*_train.npy",
+    #     'output_dir': os.path.join(OUTPUT_BASE, "nab")
+    # },
+    # 'wadi': {
+    #     'data_path': os.path.join(DATASETS_DIR, "wadi"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "wadi"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "wadi"),
+    #     'file_pattern': "*.csv",  # WADI typically has CSV files
+    #     'output_dir': os.path.join(OUTPUT_BASE, "wadi")
+    # },
+    # 'swat': {
+    #     'data_path': os.path.join(DATASETS_DIR, "swat"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "swat"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "swat"),
+    #     'file_pattern': "*.csv",  # SWAT typically has CSV files
+    #     'output_dir': os.path.join(OUTPUT_BASE, "swat")
+    # }
 }
+
+def validate_dataset_paths():
+    """Validate all dataset paths and report issues"""
+    print("🔍 Validating dataset paths...")
+    issues = []
+    
+    for dataset_type, config in DATASET_CONFIGS.items():
+        print(f"\nChecking {dataset_type}:")
+        
+        # Check data_path
+        data_path = config['data_path']
+        if not os.path.exists(data_path):
+            issues.append(f"❌ {dataset_type}: data_path not found: {data_path}")
+            print(f"  ❌ data_path: {data_path}")
+        else:
+            print(f"  ✅ data_path: {data_path}")
+        
+        # Check train_dir
+        train_dir = config['train_dir']
+        if not os.path.exists(train_dir):
+            issues.append(f"❌ {dataset_type}: train_dir not found: {train_dir}")
+            print(f"  ❌ train_dir: {train_dir}")
+        else:
+            print(f"  ✅ train_dir: {train_dir}")
+            
+            # Check for files in train_dir
+            file_pattern = config['file_pattern']
+            train_files = glob.glob(os.path.join(train_dir, file_pattern))
+            if not train_files:
+                issues.append(f"⚠️  {dataset_type}: No files found in train_dir with pattern '{file_pattern}'")
+                print(f"  ⚠️  No files found with pattern: {file_pattern}")
+            else:
+                print(f"  ✅ Found {len(train_files)} train files")
+        
+        # Check test_dir
+        test_dir = config['test_dir']
+        if not os.path.exists(test_dir):
+            issues.append(f"❌ {dataset_type}: test_dir not found: {test_dir}")
+            print(f"  ❌ test_dir: {test_dir}")
+        else:
+            print(f"  ✅ test_dir: {test_dir}")
+        
+        # Check output_dir (will be created if needed)
+        output_dir = config['output_dir']
+        print(f"  📁 output_dir: {output_dir}")
+    
+    if issues:
+        print(f"\n❌ Found {len(issues)} issues:")
+        for issue in issues:
+            print(f"  {issue}")
+        return False
+    else:
+        print(f"\n✅ All dataset paths are valid!")
+        return True
+
+def find_latest_checkpoint(dataset_type):
+    """Find the latest checkpoint for a dataset type"""
+    checkpoints_dir = os.path.join(BASE, "checkpoints")
+    if not os.path.exists(checkpoints_dir):
+        return None
+    
+    # Look for timestamped directories: {dataset}_{YYYYMMDD_HHMMSS}
+    import re
+    pattern = f"^{dataset_type}_\\d{{8}}_\\d{{6}}$"
+    matching_dirs = []
+    
+    for item in os.listdir(checkpoints_dir):
+        if os.path.isdir(os.path.join(checkpoints_dir, item)) and re.match(pattern, item):
+            matching_dirs.append(item)
+    
+    if not matching_dirs:
+        return None
+    
+    # Sort by timestamp (newest first)
+    matching_dirs.sort(reverse=True)
+    latest_dir = matching_dirs[0]
+    
+    # Check if best_model.pth exists
+    model_path = os.path.join(checkpoints_dir, latest_dir, "best_model.pth")
+    if os.path.exists(model_path):
+        return model_path
+    
+    return None
 
 def run_command(cmd, description=""):
     """Run a command inheriting the console to preserve tqdm/wandb live rendering"""
@@ -112,6 +211,32 @@ def get_dataset_files(dataset_type, config):
                     'test_path': test_file
                 })
     
+    elif dataset_type == 'pd':
+        # PD: Get all .pkl files from train directory
+        train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
+        for train_file in train_files:
+            file_name = os.path.basename(train_file)
+            test_file = os.path.join(config['test_dir'], file_name)
+            if os.path.exists(test_file):
+                files.append({
+                    'name': file_name,
+                    'train_path': train_file,
+                    'test_path': test_file
+                })
+    
+    elif dataset_type == 'gesture':
+        # Gesture: Get all .pkl files from train directory
+        train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
+        for train_file in train_files:
+            file_name = os.path.basename(train_file)
+            test_file = os.path.join(config['test_dir'], file_name)
+            if os.path.exists(test_file):
+                files.append({
+                    'name': file_name,
+                    'train_path': train_file,
+                    'test_path': test_file
+                })
+    
     elif dataset_type == 'psm':
         # PSM: Single train/test file pair
         train_file = os.path.join(config['train_dir'], 'train.csv')
@@ -139,12 +264,11 @@ def get_dataset_files(dataset_type, config):
     
     elif dataset_type == 'smap_msl':
         # SMAP-MSL processed mode: iterate all *_train.npy triplets in processed dir
-        proc_dir = config.get('processed_dir', '')
-        train_files = sorted(glob.glob(os.path.join(proc_dir, "*_train.npy")))
+        train_files = sorted(glob.glob(os.path.join(config['train_dir'], "*_train.npy")))
         for train_file in train_files:
             file_name = os.path.basename(train_file).replace('_train.npy', '')
-            test_file = os.path.join(proc_dir, f"{file_name}_test.npy")
-            labels_file = os.path.join(proc_dir, f"{file_name}_labels.npy")
+            test_file = os.path.join(config['test_dir'], f"{file_name}_test.npy")
+            labels_file = os.path.join(config['test_dir'], f"{file_name}_labels.npy")
             if os.path.exists(test_file) and os.path.exists(labels_file):
                 files.append({
                     'name': file_name,
@@ -235,20 +359,27 @@ def process_dataset(dataset_type, config):
             print(f"❌ Training failed for {file_info['name']}, skipping...")
             continue
         
-        # 2. Run inference
-        infer_cmd = (
-            f"python {os.path.join(BASE, 'src', 'inference', 'inference.py')} "
-            f"--dataset {dataset_type} "
-            f"--data_path {config['data_path']} "
-            f"--save_excel"
-        )
-        
-        if not run_command(infer_cmd, f"Inference {file_info['name']}"):
-            print(f"❌ Inference failed for {file_info['name']}")
-            continue
-        
-        # 3. No cleanup needed - plotting is disabled in inference.py
-        print("ℹ️  Plotting disabled in inference.py - no cleanup needed")
+        # 2. Find latest checkpoint and run inference
+        latest_checkpoint = find_latest_checkpoint(dataset_type)
+        if latest_checkpoint:
+            print(f"🔍 Found latest checkpoint: {latest_checkpoint}")
+            
+            # Run inference with the latest checkpoint
+            infer_cmd = (
+                f"python {os.path.join(BASE, 'src', 'inference', 'inference.py')} "
+                f"--dataset {dataset_type} "
+                f"--data_path {config['data_path']} "
+                f"--model_path {latest_checkpoint} "
+                f"--dataset_name {file_info['name']} "
+                f"--save_excel "
+                f"--save_plot"
+            )
+            
+            if not run_command(infer_cmd, f"Inference {file_info['name']}"):
+                print(f"❌ Inference failed for {file_info['name']}")
+                continue
+        else:
+            print(f"⚠️  No checkpoint found for {dataset_type}, skipping inference...")
         
         success_count += 1
         print(f"✅ Successfully processed {file_info['name']}")
@@ -260,8 +391,106 @@ def process_dataset(dataset_type, config):
     
     return success_count > 0
 
+def run_inference_only():
+    """Run inference only for all available checkpoints"""
+    print("🔍 Running inference-only mode for all available checkpoints...")
+    
+    checkpoints_dir = os.path.join(BASE, "checkpoints")
+    if not os.path.exists(checkpoints_dir):
+        print(f"❌ Checkpoints directory not found: {checkpoints_dir}")
+        return False
+    
+    # Find all dataset types with checkpoints
+    import re
+    dataset_types = set()
+    for item in os.listdir(checkpoints_dir):
+        if os.path.isdir(os.path.join(checkpoints_dir, item)):
+            # Extract dataset type from directory name
+            match = re.match(r'^(\w+)_\d{8}_\d{6}$', item)
+            if match:
+                dataset_types.add(match.group(1))
+    
+    if not dataset_types:
+        print("❌ No timestamped checkpoints found")
+        return False
+    
+    print(f"Found checkpoints for datasets: {', '.join(sorted(dataset_types))}")
+    
+    success_count = 0
+    
+    for dataset_type in sorted(dataset_types):
+        if dataset_type not in DATASET_CONFIGS:
+            print(f"⚠️  Dataset {dataset_type} not configured, skipping...")
+            continue
+        
+        config = DATASET_CONFIGS[dataset_type]
+        latest_checkpoint = find_latest_checkpoint(dataset_type)
+        
+        if not latest_checkpoint:
+            print(f"⚠️  No valid checkpoint found for {dataset_type}")
+            continue
+        
+        print(f"\n{'='*60}")
+        print(f"RUNNING INFERENCE FOR: {dataset_type.upper()}")
+        print(f"Checkpoint: {latest_checkpoint}")
+        print(f"{'='*60}")
+        
+        # Get files to process
+        files = get_dataset_files(dataset_type, config)
+        if not files:
+            print(f"❌ No files found for dataset {dataset_type}")
+            continue
+        
+        print(f"Found {len(files)} files to process:")
+        for f in files:
+            print(f"  - {f['name']}")
+        
+        file_success = 0
+        
+        for file_info in files:
+            # Run inference with the latest checkpoint
+            infer_cmd = (
+                f"python {os.path.join(BASE, 'src', 'inference', 'inference.py')} "
+                f"--dataset {dataset_type} "
+                f"--data_path {config['data_path']} "
+                f"--model_path {latest_checkpoint} "
+                f"--dataset_name {file_info['name']} "
+                f"--save_excel "
+                f"--save_plot"
+            )
+            
+            if run_command(infer_cmd, f"Inference {file_info['name']}"):
+                file_success += 1
+                print(f"✅ Successfully processed {file_info['name']}")
+            else:
+                print(f"❌ Inference failed for {file_info['name']}")
+        
+        if file_success > 0:
+            success_count += 1
+            print(f"✅ Dataset {dataset_type}: {file_success}/{len(files)} files processed")
+        else:
+            print(f"❌ Dataset {dataset_type}: No files processed successfully")
+    
+    print(f"\n{'='*60}")
+    print(f"INFERENCE-ONLY COMPLETED")
+    print(f"Successfully processed: {success_count}/{len(dataset_types)} dataset types")
+    print(f"{'='*60}")
+    
+    return success_count > 0
+
 def main():
     """Main function to process all datasets"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Automated training and inference for all datasets')
+    parser.add_argument('--inference-only', action='store_true', 
+                       help='Run inference only for existing checkpoints (skip training)')
+    parser.add_argument('--dataset', type=str, default=None,
+                       help='Process only specific dataset type')
+    parser.add_argument('--validate-only', action='store_true',
+                       help='Only validate dataset paths without running training/inference')
+    args = parser.parse_args()
+    
     print("🚀 Starting automated training and inference for all datasets")
     print(f"Base directory: {BASE}")
     
@@ -274,22 +503,54 @@ def main():
         print(f"❌ Datasets directory not found: {DATASETS_DIR}")
         sys.exit(1)
     
+    # Handle validate-only mode
+    if args.validate_only:
+        print("🔍 Running in validation-only mode...")
+        if validate_dataset_paths():
+            print("🎉 All dataset paths are valid!")
+            sys.exit(0)
+        else:
+            print("❌ Some dataset paths have issues!")
+            sys.exit(1)
+    
+    # Validate paths before proceeding
+    print("🔍 Validating dataset paths before processing...")
+    if not validate_dataset_paths():
+        print("❌ Dataset validation failed! Please fix the issues above.")
+        sys.exit(1)
+    
+    # Handle inference-only mode
+    if args.inference_only:
+        print("🔍 Running in inference-only mode...")
+        if run_inference_only():
+            print("🎉 Inference completed successfully!")
+        else:
+            print("❌ Inference failed!")
+        return
+    
     # Process each dataset type
     total_success = 0
-    total_datasets = len(DATASET_CONFIGS)
+    datasets_to_process = DATASET_CONFIGS
     
-    for dataset_type, config in DATASET_CONFIGS.items():
+    # Filter by specific dataset if requested
+    if args.dataset:
+        if args.dataset in DATASET_CONFIGS:
+            datasets_to_process = {args.dataset: DATASET_CONFIGS[args.dataset]}
+            print(f"🎯 Processing only dataset: {args.dataset}")
+        else:
+            print(f"❌ Dataset {args.dataset} not found in configurations")
+            print(f"Available datasets: {', '.join(DATASET_CONFIGS.keys())}")
+            sys.exit(1)
+    
+    total_datasets = len(datasets_to_process)
+    
+    for dataset_type, config in datasets_to_process.items():
         try:
             if process_dataset(dataset_type, config):
                 total_success += 1
         except Exception as e:
             print(f"❌ Error processing dataset {dataset_type}: {e}")
             continue
-    
-    # No final cleanup needed - plotting is disabled in inference.py
-    print(f"\n{'='*60}")
-    print("PLOTTING DISABLED: No image cleanup needed")
-    print(f"{'='*60}")
     
     print(f"\n{'#'*80}")
     print(f"FINAL SUMMARY")

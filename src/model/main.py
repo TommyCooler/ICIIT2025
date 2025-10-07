@@ -129,8 +129,6 @@ def parse_args():
                        help='Number of worker processes for data loading')
     parser.add_argument('--save_dir', type=str, default=r'checkpoints',
                        help='Directory to save checkpoints')
-    parser.add_argument('--save_every', type=int, default=10,
-                       help='Save checkpoint every N epochs')
     parser.add_argument('--resume', type=str, default="latest",
                        help='Path to checkpoint to resume from, or "latest" to resume from latest checkpoint')
     parser.add_argument('--resume_epoch', type=int, default=None,
@@ -141,8 +139,6 @@ def parse_args():
     # Other arguments
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed')
-    parser.add_argument('--verbose', action='store_true',
-                       help='Enable verbose output')
     
     return parser.parse_args()
 
