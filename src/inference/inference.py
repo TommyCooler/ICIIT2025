@@ -85,6 +85,11 @@ def get_dataset_paths(dataset_type: str, base_data_path: str) -> Dict[str, str]:
         Dictionary with dataset-specific paths
     """
     dataset_paths = {
+        'ucr': {
+            'test_path': base_data_path,
+            'train_path': base_data_path,
+            'file_pattern': '*_test.npy'
+        },
         'ecg': {
             'test_path': os.path.join(base_data_path, 'ecg', 'labeled', 'test'),
             'train_path': os.path.join(base_data_path, 'ecg', 'labeled', 'train'),
@@ -113,11 +118,6 @@ def get_dataset_paths(dataset_type: str, base_data_path: str) -> Dict[str, str]:
         'smd': {
             'test_path': os.path.join(base_data_path, 'smd', 'processed'),
             'train_path': os.path.join(base_data_path, 'smd', 'processed'),
-            'file_pattern': '*_test.npy'
-        },
-        'ucr': {
-            'test_path': os.path.join(base_data_path, 'labeled'),
-            'train_path': os.path.join(base_data_path, 'labeled'),
             'file_pattern': '*_test.npy'
         },
         'gesture': {
