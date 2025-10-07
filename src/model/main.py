@@ -18,6 +18,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from model.contrastive_model import ContrastiveModel
 from model.train_contrastive import ContrastiveTrainer, create_contrastive_dataloaders
 from utils.dataloader import create_dataloaders
+import setproctitle
+
+setproctitle.setproctitle("TamTC's train")
 
 
 def parse_args():
