@@ -342,6 +342,16 @@ class ContrastiveInference:
             # Load test data
             test_data = np.load(file_path)
             
+            # Reshape data based on dataset type
+            if dataset_type == 'ucr':
+                # UCR data format: (time,) -> reshape to (1, time) for single feature
+                if test_data.ndim == 1:
+                    test_data = test_data.reshape(1, -1)  # Shape: (1, time)
+                elif test_data.ndim == 2:
+                    test_data = test_data.T  # Shape: (features, time)
+                else:
+                    raise ValueError(f"Unexpected UCR data shape: {test_data.shape}")
+            
             # Try to load corresponding labels file
             labels_file = file_path.replace('_test.npy', '_labels.npy')
             labels = None
@@ -415,11 +425,10 @@ class ContrastiveInference:
         Returns:
             Tuple of (timestep_scores, reconstruction)
         """
-        # Compute timestep anomaly scores directly
-        timestep_scores = self.compute_timestep_anomaly_scores(data, window_size, stride, batch_size)
-        
-        # Create full reconstruction (simplified)
-        reconstruction = self.create_simple_reconstruction(data, window_size, stride)
+        # Compute timestep anomaly scores and get actual reconstruction
+        timestep_scores, reconstruction = self.compute_timestep_anomaly_scores_with_reconstruction(
+            data, window_size, stride, batch_size
+        )
         
         return timestep_scores, reconstruction
     
@@ -519,6 +528,123 @@ class ContrastiveInference:
         print(f"Non-zero scores: {np.sum(timestep_scores != 0)}")
         
         return timestep_scores
+    
+    def compute_timestep_anomaly_scores_with_reconstruction(self, data: np.ndarray, window_size: int, stride: int = 1, batch_size: int = 32) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute anomaly score for each timestep AND create full reconstruction
+        
+        Args:
+            data: Input data of shape (features, time_steps)
+            window_size: Size of sliding window
+            stride: Step size for sliding window
+            batch_size: Batch size for processing windows
+            
+        Returns:
+            Tuple of (timestep_scores, reconstruction)
+        """
+        _, time_steps = data.shape
+        
+        # Calculate number of windows to cover all timesteps
+        n_windows = time_steps - window_size + 1
+        
+        # Initialize timestep scores and reconstruction
+        timestep_scores = np.zeros(time_steps, dtype=np.float32)
+        reconstruction = np.zeros_like(data, dtype=np.float32)
+        reconstruction_counts = np.zeros(time_steps, dtype=np.int32)
+        
+        print(f"Computing timestep anomaly scores and reconstruction for {time_steps} timesteps from {n_windows} windows...")
+        
+        # Process windows in batches
+        with torch.no_grad():
+            for batch_start in range(0, n_windows, batch_size):
+                batch_end = min(batch_start + batch_size, n_windows)
+                
+                # Prepare batch data
+                batch_windows = []
+                batch_indices = []
+                
+                for i in range(batch_start, batch_end):
+                    start_idx = i * stride
+                    end_idx = start_idx + window_size
+                    
+                    # Extract window
+                    window_data = data[:, start_idx:end_idx]  # (features, window_size)
+                    batch_windows.append(window_data.T)  # (window_size, features)
+                    batch_indices.append(i)
+                
+                if not batch_windows:
+                    break
+                
+                # Convert to tensor batch: (batch_size, window_size, features)
+                batch_tensor = torch.FloatTensor(np.array(batch_windows)).to(self.device)
+                
+                # Forward pass through model
+                outputs = self.model(batch_tensor, batch_tensor)
+                
+                # Get reconstruction
+                reconstructed = outputs['reconstructed']  # (batch_size, window_size, features)
+                
+                # Calculate absolute error |Eo - Ep| per timestep
+                absolute_error = torch.abs(batch_tensor - reconstructed)  # (batch_size, window_size, features)
+                
+                # Calculate mean absolute error per timestep (across features)
+                mean_absolute_error = torch.mean(absolute_error, dim=2)  # (batch_size, window_size)
+                mean_absolute_error = mean_absolute_error.cpu().numpy()  # (batch_size, window_size)
+                
+                # Convert reconstruction back to numpy
+                reconstructed_np = reconstructed.cpu().numpy()  # (batch_size, window_size, features)
+                
+                # Store results for this batch
+                for j, window_idx in enumerate(batch_indices):
+                    start_idx = window_idx * stride
+                    end_idx = min(start_idx + window_size, time_steps)
+                    valid_len = end_idx - start_idx
+                    
+                    if window_idx == 0:
+                        # First window [0:window_size-1]: use all timesteps
+                        timestep_scores[start_idx:end_idx] = mean_absolute_error[j][:valid_len]
+                        
+                        # Add reconstruction for all timesteps
+                        for t in range(valid_len):
+                            reconstruction[:, start_idx + t] += reconstructed_np[j, t, :]
+                            reconstruction_counts[start_idx + t] += 1
+                    else:
+                        # Subsequent windows [i:i+window_size-1]: only use the last timestep
+                        last_timestep_idx = end_idx - 1
+                        if last_timestep_idx < time_steps:
+                            timestep_scores[last_timestep_idx] = mean_absolute_error[j][valid_len - 1]
+                            
+                            # Add reconstruction for the last timestep
+                            reconstruction[:, last_timestep_idx] += reconstructed_np[j, valid_len - 1, :]
+                            reconstruction_counts[last_timestep_idx] += 1
+                
+                if (batch_end) % (batch_size * 10) == 0 or batch_end == n_windows:
+                    print(f"Processed {batch_end}/{n_windows} windows")
+        
+        # Average reconstruction across overlapping windows
+        for t in range(time_steps):
+            if reconstruction_counts[t] > 0:
+                reconstruction[:, t] /= reconstruction_counts[t]
+            else:
+                # If no reconstruction available, use original data
+                reconstruction[:, t] = data[:, t]
+        
+        # Verify all timesteps are covered
+        uncovered_timesteps = np.sum(timestep_scores == 0)
+        if uncovered_timesteps > 0:
+            print(f"Warning: {uncovered_timesteps} timesteps were not covered by any window")
+        else:
+            print(f"All {time_steps} timesteps are covered by windows")
+        
+        print(f"Timestep scores computed: {len(timestep_scores)} timesteps")
+        print(f"Score range: [{np.min(timestep_scores):.6f}, {np.max(timestep_scores):.6f}]")
+        print(f"Non-zero scores: {np.sum(timestep_scores != 0)}")
+        
+        # Debug: Check if reconstruction matches original (should give anomaly score = 0)
+        reconstruction_error = np.mean(np.abs(data - reconstruction))
+        print(f"Reconstruction error (should be close to anomaly scores): {reconstruction_error:.6f}")
+        
+        return timestep_scores, reconstruction
     
     def create_simple_reconstruction(self, data: np.ndarray, window_size: int, stride: int = 1) -> np.ndarray:
         """
@@ -944,14 +1070,17 @@ class ContrastiveInference:
         # Plot 1: Test Data vs Reconstruction
         ax1 = axes[0]
         
-        # Plot first few features for visualization
-        num_features_to_plot = min(3, data.shape[0])
+        # Plot all available features for visualization
+        num_features_to_plot = data.shape[0]
         colors = ['blue', 'red', 'green', 'orange', 'purple']
         
+        # Create time axis (1 to number of timesteps)
+        time_steps = np.arange(1, data.shape[1] + 1)
+        
         for i in range(num_features_to_plot):
-            ax1.plot(data[i, :], label=f'Original Feature {i+1}', 
+            ax1.plot(time_steps, data[i, :], label=f'Original Feature {i+1}', 
                     color=colors[i % len(colors)], alpha=0.7, linewidth=1)
-            ax1.plot(reconstruction[i, :], label=f'Reconstruction Feature {i+1}', 
+            ax1.plot(time_steps, reconstruction[i, :], label=f'Reconstruction Feature {i+1}', 
                     color=colors[i % len(colors)], alpha=0.5, linewidth=1, linestyle='--')
         
         ax1.set_title('Test Data vs Reconstruction', fontsize=14, fontweight='bold')
@@ -981,13 +1110,14 @@ class ContrastiveInference:
             
             # Highlight anomaly regions
             for start, end in anomaly_regions:
-                ax1.axvspan(start, end, alpha=0.2, color='red', label='Ground Truth Anomalies' if start == anomaly_regions[0][0] else "")
+                ax1.axvspan(time_steps[start], time_steps[end], alpha=0.2, color='red', 
+                           label='Ground Truth Anomalies' if start == anomaly_regions[0][0] else "")
         
         # Plot 2: Anomaly Scores
         ax2 = axes[1]
         
-        # Plot anomaly scores
-        ax2.plot(timestep_scores, label='Anomaly Score', color='purple', linewidth=1)
+        # Plot anomaly scores with same time axis
+        ax2.plot(time_steps, timestep_scores, label='Anomaly Score', color='purple', linewidth=1)
         
         # Add threshold line if available
         if best_threshold is not None:
@@ -998,7 +1128,7 @@ class ContrastiveInference:
             detected_anomalies = timestep_scores > best_threshold
             anomaly_indices = np.where(detected_anomalies)[0]
             if len(anomaly_indices) > 0:
-                ax2.scatter(anomaly_indices, timestep_scores[anomaly_indices], 
+                ax2.scatter(time_steps[anomaly_indices], timestep_scores[anomaly_indices], 
                            color='red', s=10, alpha=0.6, label='Detected Anomalies')
         
         ax2.set_title('Anomaly Scores Over Time', fontsize=14, fontweight='bold')
@@ -1246,6 +1376,8 @@ def main():
             return
         
         print(f"✅ Loaded data shape: {test_data.shape}")
+        print(f"   Data range: [{np.min(test_data):.4f}, {np.max(test_data):.4f}]")
+        print(f"   Data mean: {np.mean(test_data):.4f}, std: {np.std(test_data):.4f}")
         if labels is not None:
             print(f"✅ Loaded labels shape: {labels.shape}")
             print(f"   Anomaly ratio: {np.sum(labels) / len(labels) * 100:.2f}%")
@@ -1257,6 +1389,12 @@ def main():
         timestep_scores, reconstruction = inference.run_inference(
             test_data, args.window_size, args.stride, args.batch_size
         )
+        
+        print(f"✅ Reconstruction shape: {reconstruction.shape}")
+        print(f"   Reconstruction range: [{np.min(reconstruction):.4f}, {np.max(reconstruction):.4f}]")
+        print(f"   Reconstruction mean: {np.mean(reconstruction):.4f}, std: {np.std(reconstruction):.4f}")
+        print(f"✅ Timestep scores shape: {timestep_scores.shape}")
+        print(f"   Scores range: [{np.min(timestep_scores):.4f}, {np.max(timestep_scores):.4f}]")
         
         # Adjust labels length if needed
         if labels is not None:
