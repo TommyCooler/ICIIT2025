@@ -64,7 +64,7 @@ DATASET_CONFIGS = {
         'data_path': os.path.join(DATASETS_DIR, "smd"),
         'train_dir': os.path.join(DATASETS_DIR, "smd"),
         'test_dir': os.path.join(DATASETS_DIR, "smd"),
-        'file_pattern': "*.npy",
+        'file_pattern': "*_train.npy",
         'output_dir': os.path.join(OUTPUT_BASE, "smd")
     },
     # 'nab': {
@@ -73,29 +73,19 @@ DATASET_CONFIGS = {
     #     'test_dir': os.path.join(DATASETS_DIR, "nab"),
     #     'file_pattern': "*_train.npy",
     #     'output_dir': os.path.join(OUTPUT_BASE, "nab")
-    # },
-    # 'wadi': {
-    #     'data_path': os.path.join(DATASETS_DIR, "wadi"),
-    #     'train_dir': os.path.join(DATASETS_DIR, "wadi"),
-    #     'test_dir': os.path.join(DATASETS_DIR, "wadi"),
-    #     'file_pattern': "*.csv",  # WADI typically has CSV files
-    #     'output_dir': os.path.join(OUTPUT_BASE, "wadi")
-    # },
-    # 'swat': {
-    #     'data_path': os.path.join(DATASETS_DIR, "swat"),
-    #     'train_dir': os.path.join(DATASETS_DIR, "swat"),
-    #     'test_dir': os.path.join(DATASETS_DIR, "swat"),
-    #     'file_pattern': "*.csv",  # SWAT typically has CSV files
-    #     'output_dir': os.path.join(OUTPUT_BASE, "swat")
     # }
 }
 
-def validate_dataset_paths():
-    """Validate all dataset paths and report issues"""
+def validate_dataset_paths(datasets_to_validate=None):
+    """Validate dataset paths and report issues"""
     print("🔍 Validating dataset paths...")
     issues = []
     
-    for dataset_type, config in DATASET_CONFIGS.items():
+    # If no specific datasets provided, validate all
+    if datasets_to_validate is None:
+        datasets_to_validate = DATASET_CONFIGS
+    
+    for dataset_type, config in datasets_to_validate.items():
         print(f"\nChecking {dataset_type}:")
         
         # Check data_path
@@ -198,41 +188,15 @@ def get_dataset_files(dataset_type, config):
     """Get list of files to process for a dataset type"""
     files = []
     
-    if dataset_type == 'ecg':
-        # ECG: Get all .pkl files from train directory
+    if dataset_type in ['ecg', 'pd', 'gesture']:
+        # ECG, PD, Gesture: Get all .pkl files from train directory
         train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
         for train_file in train_files:
             file_name = os.path.basename(train_file)
             test_file = os.path.join(config['test_dir'], file_name)
             if os.path.exists(test_file):
                 files.append({
-                    'name': file_name,
-                    'train_path': train_file,
-                    'test_path': test_file
-                })
-    
-    elif dataset_type == 'pd':
-        # PD: Get all .pkl files from train directory
-        train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
-        for train_file in train_files:
-            file_name = os.path.basename(train_file)
-            test_file = os.path.join(config['test_dir'], file_name)
-            if os.path.exists(test_file):
-                files.append({
-                    'name': file_name,
-                    'train_path': train_file,
-                    'test_path': test_file
-                })
-    
-    elif dataset_type == 'gesture':
-        # Gesture: Get all .pkl files from train directory
-        train_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
-        for train_file in train_files:
-            file_name = os.path.basename(train_file)
-            test_file = os.path.join(config['test_dir'], file_name)
-            if os.path.exists(test_file):
-                files.append({
-                    'name': file_name,
+                    'name': file_name.replace('.pkl', ''),  # Remove extension for dataset_name
                     'train_path': train_file,
                     'test_path': test_file
                 })
@@ -304,17 +268,6 @@ def get_dataset_files(dataset_type, config):
                     'train_path': train_file,
                     'test_path': test_file
                 })
-    
-    elif dataset_type in ['wadi', 'swat']:
-        # WADI/SWAT: Check for CSV files
-        csv_files = sorted(glob.glob(os.path.join(config['train_dir'], config['file_pattern'])))
-        for csv_file in csv_files:
-            file_name = os.path.basename(csv_file).replace('.csv', '')
-            files.append({
-                'name': file_name,
-                'train_path': csv_file,
-                'test_path': csv_file  # Same file for train/test
-            })
     
     return files
 
@@ -506,7 +459,16 @@ def main():
     # Handle validate-only mode
     if args.validate_only:
         print("🔍 Running in validation-only mode...")
-        if validate_dataset_paths():
+        datasets_to_validate = DATASET_CONFIGS
+        if args.dataset:
+            if args.dataset in DATASET_CONFIGS:
+                datasets_to_validate = {args.dataset: DATASET_CONFIGS[args.dataset]}
+                print(f"🎯 Validating only dataset: {args.dataset}")
+            else:
+                print(f"❌ Dataset {args.dataset} not found in configurations")
+                sys.exit(1)
+        
+        if validate_dataset_paths(datasets_to_validate):
             print("🎉 All dataset paths are valid!")
             sys.exit(0)
         else:

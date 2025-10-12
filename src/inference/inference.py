@@ -116,14 +116,19 @@ def get_dataset_paths(dataset_type: str, base_data_path: str) -> Dict[str, str]:
             'file_pattern': '*_test.npy'
         },
         'smd': {
-            'test_path': os.path.join(base_data_path, 'smd', 'processed'),
-            'train_path': os.path.join(base_data_path, 'smd', 'processed'),
+            'test_path': os.path.join(base_data_path, 'smd'),
+            'train_path': os.path.join(base_data_path, 'smd'),
             'file_pattern': '*_test.npy'
         },
         'gesture': {
             'test_path': os.path.join(base_data_path, 'gesture', 'labeled', 'test'),
             'train_path': os.path.join(base_data_path, 'gesture', 'labeled', 'train'),
             'file_pattern': '*.pkl'
+        },
+        'nab': {
+            'test_path': os.path.join(base_data_path, 'nab'),
+            'train_path': os.path.join(base_data_path, 'nab'),
+            'file_pattern': '*_test.npy'
         }
     }
     
@@ -174,6 +179,19 @@ class ContrastiveInference:
             temperature = config.get('temperature', 1.0)
             combination_method = config.get('combination_method', 'concat')
             use_contrastive = config.get('use_contrastive', True)
+            # Decoder parameters
+            decoder_type = config.get('decoder_type', 'mlp')
+            decoder_hidden_dims = config.get('decoder_hidden_dims', None)
+            decoder_tcn_kernel_size = config.get('decoder_tcn_kernel_size', 3)
+            decoder_tcn_num_layers = config.get('decoder_tcn_num_layers', 3)
+            decoder_transformer_nhead = config.get('decoder_transformer_nhead', 8)
+            decoder_transformer_num_layers = config.get('decoder_transformer_num_layers', 3)
+            decoder_dim_feedforward = config.get('decoder_dim_feedforward', 512)
+            decoder_hybrid_tcn_kernel_size = config.get('decoder_hybrid_tcn_kernel_size', 3)
+            decoder_hybrid_tcn_num_layers = config.get('decoder_hybrid_tcn_num_layers', 2)
+            decoder_hybrid_transformer_nhead = config.get('decoder_hybrid_transformer_nhead', 8)
+            decoder_hybrid_transformer_num_layers = config.get('decoder_hybrid_transformer_num_layers', 2)
+            decoder_hybrid_dim_feedforward = config.get('decoder_hybrid_dim_feedforward', 512)
             # Load window_size from config to ensure consistency with training
             self.window_size = config.get('window_size', 128)
             # Load batch_size from config to ensure consistency with training
@@ -219,6 +237,7 @@ class ContrastiveInference:
             print(f"Using input_dim: {self.input_dim}")
             print(f"Using window_size: {self.window_size}")
             print(f"Using batch_size: {self.batch_size}")
+            print(f"Using decoder_type: {decoder_type}")
             print(f"Using contrastive: {use_contrastive}")
             print(f"Using learning_rate: {self.learning_rate}")
             print(f"Using contrastive_weight: {self.contrastive_weight}")
@@ -240,6 +259,19 @@ class ContrastiveInference:
             temperature = checkpoint.get('temperature', 1.0)
             combination_method = checkpoint.get('combination_method', 'concat')
             use_contrastive = checkpoint.get('use_contrastive', True)
+            # Decoder parameters (fallback to defaults if not in checkpoint)
+            decoder_type = checkpoint.get('decoder_type', 'mlp')
+            decoder_hidden_dims = checkpoint.get('decoder_hidden_dims', None)
+            decoder_tcn_kernel_size = checkpoint.get('decoder_tcn_kernel_size', 3)
+            decoder_tcn_num_layers = checkpoint.get('decoder_tcn_num_layers', 3)
+            decoder_transformer_nhead = checkpoint.get('decoder_transformer_nhead', 8)
+            decoder_transformer_num_layers = checkpoint.get('decoder_transformer_num_layers', 3)
+            decoder_dim_feedforward = checkpoint.get('decoder_dim_feedforward', 512)
+            decoder_hybrid_tcn_kernel_size = checkpoint.get('decoder_hybrid_tcn_kernel_size', 3)
+            decoder_hybrid_tcn_num_layers = checkpoint.get('decoder_hybrid_tcn_num_layers', 2)
+            decoder_hybrid_transformer_nhead = checkpoint.get('decoder_hybrid_transformer_nhead', 8)
+            decoder_hybrid_transformer_num_layers = checkpoint.get('decoder_hybrid_transformer_num_layers', 2)
+            decoder_hybrid_dim_feedforward = checkpoint.get('decoder_hybrid_dim_feedforward', 512)
             # Load window_size from checkpoint if available
             self.window_size = checkpoint.get('window_size', 128)
             # Load batch_size from checkpoint if available
@@ -273,6 +305,7 @@ class ContrastiveInference:
             print(f"Using input_dim: {self.input_dim}")
             print(f"Using window_size: {self.window_size}")
             print(f"Using batch_size: {self.batch_size}")
+            print(f"Using decoder_type: {decoder_type}")
             print(f"Using contrastive: {use_contrastive}")
             print(f"Using learning_rate: {self.learning_rate}")
             print(f"Using contrastive_weight: {self.contrastive_weight}")
@@ -295,6 +328,19 @@ class ContrastiveInference:
             temperature=temperature,
             combination_method=combination_method,
             use_contrastive=use_contrastive,
+            # Decoder parameters
+            decoder_type=decoder_type,
+            decoder_hidden_dims=decoder_hidden_dims,
+            decoder_tcn_kernel_size=decoder_tcn_kernel_size,
+            decoder_tcn_num_layers=decoder_tcn_num_layers,
+            decoder_transformer_nhead=decoder_transformer_nhead,
+            decoder_transformer_num_layers=decoder_transformer_num_layers,
+            decoder_dim_feedforward=decoder_dim_feedforward,
+            decoder_hybrid_tcn_kernel_size=decoder_hybrid_tcn_kernel_size,
+            decoder_hybrid_tcn_num_layers=decoder_hybrid_tcn_num_layers,
+            decoder_hybrid_transformer_nhead=decoder_hybrid_transformer_nhead,
+            decoder_hybrid_transformer_num_layers=decoder_hybrid_transformer_num_layers,
+            decoder_hybrid_dim_feedforward=decoder_hybrid_dim_feedforward,
             augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
         )
         
@@ -1507,6 +1553,18 @@ def main():
             with open(config_path, 'r') as f:
                 config = json.load(f)
             additional_info = {
+                'Decoder_Type': config.get('decoder_type', 'Unknown'),
+                'Decoder_Hidden_Dims': config.get('decoder_hidden_dims', 'Unknown'),
+                'Decoder_TCN_Kernel_Size': config.get('decoder_tcn_kernel_size', 'Unknown'),
+                'Decoder_TCN_Num_Layers': config.get('decoder_tcn_num_layers', 'Unknown'),
+                'Decoder_Transformer_Nhead': config.get('decoder_transformer_nhead', 'Unknown'),
+                'Decoder_Transformer_Num_Layers': config.get('decoder_transformer_num_layers', 'Unknown'),
+                'Decoder_Dim_Feedforward': config.get('decoder_dim_feedforward', 'Unknown'),
+                'Decoder_Hybrid_TCN_Kernel_Size': config.get('decoder_hybrid_tcn_kernel_size', 'Unknown'),
+                'Decoder_Hybrid_TCN_Num_Layers': config.get('decoder_hybrid_tcn_num_layers', 'Unknown'),
+                'Decoder_Hybrid_Transformer_Nhead': config.get('decoder_hybrid_transformer_nhead', 'Unknown'),
+                'Decoder_Hybrid_Transformer_Num_Layers': config.get('decoder_hybrid_transformer_num_layers', 'Unknown'),
+                'Decoder_Hybrid_Dim_Feedforward': config.get('decoder_hybrid_dim_feedforward', 'Unknown'),
                 'Aug_nhead': config.get('aug_nhead', 'Unknown'),
                 'Aug_num_layers': config.get('aug_num_layers', 'Unknown'),
                 'Aug_tcn_kernel_size': config.get('aug_tcn_kernel_size', 'Unknown'),

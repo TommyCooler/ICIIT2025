@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, List
 from modules.encoder import Encoder
 from modules.decoder import Decoder
 from modules.augmentation import Augmentation
@@ -49,7 +49,23 @@ class ContrastiveModel(nn.Module):
                  temperature: float = 1,
                  combination_method: str = 'concat',
                  use_contrastive: bool = True,
-                 augmentation_kwargs: Optional[Dict] = None):
+                 augmentation_kwargs: Optional[Dict] = None,
+                 # Decoder parameters
+                 decoder_type: str = 'mlp',
+                 decoder_hidden_dims: Optional[List[int]] = None,
+                 # TCN decoder parameters
+                 decoder_tcn_kernel_size: int = 3,
+                 decoder_tcn_num_layers: int = 3,
+                 # Transformer decoder parameters
+                 decoder_transformer_nhead: int = 8,
+                 decoder_transformer_num_layers: int = 3,
+                 decoder_dim_feedforward: int = 512,
+                 # Hybrid decoder parameters
+                 decoder_hybrid_tcn_kernel_size: int = 3,
+                 decoder_hybrid_tcn_num_layers: int = 2,
+                 decoder_hybrid_transformer_nhead: int = 8,
+                 decoder_hybrid_transformer_num_layers: int = 2,
+                 decoder_hybrid_dim_feedforward: int = 512):
         """
         Args:
             input_dim: Input dimension (number of features)
@@ -64,6 +80,22 @@ class ContrastiveModel(nn.Module):
             temperature: Temperature for InfoNCE loss
             combination_method: 'concat' or 'stack' for encoder combination
             use_contrastive: Whether to use contrastive learning branch
+            # Decoder parameters
+            decoder_type: Type of decoder ('mlp', 'tcn', 'transformer', 'hybrid')
+            decoder_hidden_dims: Hidden dimensions for MLP decoder
+            # TCN decoder parameters
+            decoder_tcn_kernel_size: Kernel size for TCN decoder
+            decoder_tcn_num_layers: Number of TCN layers for decoder
+            # Transformer decoder parameters
+            decoder_transformer_nhead: Number of attention heads for transformer decoder
+            decoder_transformer_num_layers: Number of transformer layers for decoder
+            decoder_dim_feedforward: Feedforward dimension for transformer decoder
+            # Hybrid decoder parameters
+            decoder_hybrid_tcn_kernel_size: Kernel size for TCN in hybrid decoder
+            decoder_hybrid_tcn_num_layers: Number of TCN layers in hybrid decoder
+            decoder_hybrid_transformer_nhead: Number of attention heads for transformer in hybrid decoder
+            decoder_hybrid_transformer_num_layers: Number of transformer layers in hybrid decoder
+            decoder_hybrid_dim_feedforward: Feedforward dimension for transformer in hybrid decoder
         """
         super(ContrastiveModel, self).__init__()
         
@@ -97,12 +129,26 @@ class ContrastiveModel(nn.Module):
                 dropout=dropout
             )
         
-        # MLP Decoder for reconstruction
+        # Decoder for reconstruction with configurable architecture
         self.decoder = Decoder(
             d_model=d_model,
             output_dim=input_dim,
-            hidden_dims=[d_model, d_model // 2, d_model // 4],
-            dropout=dropout
+            decoder_type=decoder_type,
+            hidden_dims=decoder_hidden_dims if decoder_hidden_dims is not None else [d_model, d_model // 2, d_model // 4],
+            dropout=dropout,
+            # TCN decoder parameters
+            tcn_kernel_size=decoder_tcn_kernel_size,
+            tcn_num_layers=decoder_tcn_num_layers,
+            # Transformer decoder parameters
+            transformer_nhead=decoder_transformer_nhead,
+            transformer_num_layers=decoder_transformer_num_layers,
+            dim_feedforward=decoder_dim_feedforward,
+            # Hybrid decoder parameters
+            hybrid_tcn_kernel_size=decoder_hybrid_tcn_kernel_size,
+            hybrid_tcn_num_layers=decoder_hybrid_tcn_num_layers,
+            hybrid_transformer_nhead=decoder_hybrid_transformer_nhead,
+            hybrid_transformer_num_layers=decoder_hybrid_transformer_num_layers,
+            hybrid_dim_feedforward=decoder_hybrid_dim_feedforward
         )
         
         # Augmentation module for data augmentation

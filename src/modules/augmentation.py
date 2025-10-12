@@ -10,20 +10,29 @@ class LinearAugmentation(nn.Module):
     def __init__(self, input_dim, output_dim, dropout=0.1):
         super(LinearAugmentation, self).__init__()
         self.linear = nn.Linear(input_dim, output_dim)
-        self.dropout = nn.Dropout(dropout)
         
     def forward(self, x):
-        # x shape: (batch_size, seq_len, input_dim) hoặc (seq_len, input_dim) hoặc (batch_size * seq_len, input_dim)
-        if x.dim() == 2:
-            # x shape: (seq_len, input_dim) hoặc (batch_size * seq_len, input_dim)
-            # For 2D input, we need to handle it as (seq_len, input_dim)
-            # Add batch dimension and process
-            x = x.unsqueeze(0)  # (1, seq_len, input_dim)
-            result = self.dropout(F.gelu(self.linear(x)))
-            return result.squeeze(0)  # (seq_len, output_dim)
-        else:
-            # x shape: (batch_size, seq_len, input_dim)
-            return self.dropout(F.gelu(self.linear(x)))
+        x = self.linear(x)
+        return x
+
+class MLPAugmentation(nn.Module):
+    def __init__(self, input_dim, output_dim, dropout=0.1):
+        super(MLPAugmentation, self).__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.sequential = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(128, 128),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(128, output_dim)
+        )
+
+    def forward(self, x):
+        x = self.sequential(x)
+        return x
+
 
 
 class CNNAugmentation(nn.Module):
@@ -181,6 +190,7 @@ class Augmentation(nn.Module):
         
         # Initialize all augmentation modules
         self.linear_module = LinearAugmentation(input_dim, desired_output_dim, dropout)
+        self.mlp_module = MLPAugmentation(input_dim, desired_output_dim, dropout)
         self.cnn_module = CNNAugmentation(input_dim, desired_output_dim, 
                                         kernel_size=kwargs.get('cnn_kernel_size', 3), 
                                         dropout=dropout)
@@ -220,6 +230,7 @@ class Augmentation(nn.Module):
         """
         # Get outputs from all modules
         linear_out = self.linear_module(x)
+        mlp_out = self.mlp_module(x)
         cnn_out = self.cnn_module(x)
         tcn_out = self.tcn_module(x)
         lstm_out = self.lstm_module(x)
@@ -230,7 +241,7 @@ class Augmentation(nn.Module):
             transformer_out = self.transformer_projection(transformer_out)
         
         # Stack all outputs: (num_aug, batch, seq_len, feat)
-        outputs = torch.stack([linear_out, cnn_out, tcn_out, lstm_out, transformer_out], dim=0)
+        outputs = torch.stack([linear_out, mlp_out, cnn_out, tcn_out, lstm_out, transformer_out], dim=0)
 
         # Learned probabilities for 5 augmentations (after temperature-scaled softmax)
         probs = F.softmax(self.alpha / self.temperature, dim=0)  # (5,)
@@ -260,6 +271,7 @@ class Augmentation(nn.Module):
                 transformer_out = self.transformer_projection(transformer_out)
             outputs = {
                 'linear': self.linear_module(x),
+                'mlp': self.mlp_module(x),
                 'cnn': self.cnn_module(x),
                 'tcn': self.tcn_module(x),
                 'lstm': self.lstm_module(x),

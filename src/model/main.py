@@ -10,7 +10,6 @@ import torch
 import numpy as np
 import os
 import sys
-from datetime import datetime
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,7 +28,7 @@ def parse_args():
     
     # Dataset arguments
     parser.add_argument('--dataset', type=str, default='ecg', 
-                       choices=['ecg', 'gesture', 'pd', 'psm', 'smap_msl', 'smd', 'ucr'],
+                       choices=['ecg', 'gesture', 'pd', 'psm', 'smap_msl', 'smd', 'ucr', 'nab'],
                        help='Type of dataset to use')
     parser.add_argument('--data_path', type=str, default='D:\Hoc_voi_cha_hanh\FPT\Hoc_rieng\ICIIT2025\MainModel\datasets\ecg',
                        help='Path to dataset directory')
@@ -43,7 +42,7 @@ def parse_args():
                        help='Model dimension for transformer')
     parser.add_argument('--projection_dim', type=int, default=128,
                        help='Dimension for contrastive learning projection')
-    parser.add_argument('--nhead', type=int, default=8,
+    parser.add_argument('--nhead', type=int, default=4,
                        help='Number of attention heads')
     parser.add_argument('--transformer_layers', type=int, default=6,
                        help='Number of transformer encoder layers')
@@ -60,6 +59,36 @@ def parse_args():
     parser.add_argument('--combination_method', type=str, default='stack',
                        choices=['concat', 'stack'],
                        help='Method for combining TCN and Transformer outputs')
+    
+    # Decoder arguments
+    parser.add_argument('--decoder_type', type=str, default='tcn',
+                       choices=['mlp', 'tcn', 'transformer', 'hybrid'],
+                       help='Type of decoder architecture')
+    parser.add_argument('--decoder_hidden_dims', type=str, default=None,
+                       help='Comma-separated hidden dimensions for MLP decoder (e.g., "256,128,64")')
+    # TCN decoder arguments
+    parser.add_argument('--decoder_tcn_kernel_size', type=int, default=3,
+                       help='Kernel size for TCN decoder')
+    parser.add_argument('--decoder_tcn_num_layers', type=int, default=6,
+                       help='Number of TCN layers for decoder')
+    # Transformer decoder arguments
+    parser.add_argument('--decoder_transformer_nhead', type=int, default=8,
+                       help='Number of attention heads for transformer decoder')
+    parser.add_argument('--decoder_transformer_num_layers', type=int, default=3,
+                       help='Number of transformer layers for decoder')
+    parser.add_argument('--decoder_dim_feedforward', type=int, default=512,
+                       help='Feedforward dimension for transformer decoder')
+    # Hybrid decoder arguments
+    parser.add_argument('--decoder_hybrid_tcn_kernel_size', type=int, default=3,
+                       help='Kernel size for TCN in hybrid decoder')
+    parser.add_argument('--decoder_hybrid_tcn_num_layers', type=int, default=2,
+                       help='Number of TCN layers in hybrid decoder')
+    parser.add_argument('--decoder_hybrid_transformer_nhead', type=int, default=8,
+                       help='Number of attention heads for transformer in hybrid decoder')
+    parser.add_argument('--decoder_hybrid_transformer_num_layers', type=int, default=2,
+                       help='Number of transformer layers in hybrid decoder')
+    parser.add_argument('--decoder_hybrid_dim_feedforward', type=int, default=512,
+                       help='Feedforward dimension for transformer in hybrid decoder')
 
     # Augmentation-specific overrides (distinct names to avoid confusion with encoder)
     parser.add_argument('--aug_nhead', type=int, default=2,
@@ -84,7 +113,7 @@ def parse_args():
                        help='Size of windows')
     parser.add_argument('--batch_size', type=int, default=64,
                        help='Batch size')
-    parser.add_argument('--num_epochs', type=int, default=300,
+    parser.add_argument('--num_epochs', type=int, default=50,
                        help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                        help='Learning rate')
@@ -256,6 +285,7 @@ def main():
     print(f"Window size: {args.window_size}")
     print(f"Batch size: {args.batch_size}")
     print(f"Number of epochs: {args.num_epochs}")
+    print(f"Decoder type: {args.decoder_type}")
     print(f"Use contrastive: {args.use_contrastive}")
     print(f"Use wandb: {args.use_wandb}")
     print(f"Device: {device}")
@@ -304,8 +334,18 @@ def main():
         except Exception as e:
             print(f"Warning: Could not detect input_dim from dataloader: {e}")
         
+        # Parse decoder hidden dimensions if provided
+        decoder_hidden_dims = None
+        if args.decoder_hidden_dims:
+            try:
+                decoder_hidden_dims = [int(x.strip()) for x in args.decoder_hidden_dims.split(',')]
+                print(f"Using decoder hidden dimensions: {decoder_hidden_dims}")
+            except ValueError:
+                print(f"Warning: Invalid decoder_hidden_dims format: {args.decoder_hidden_dims}. Using default.")
+                decoder_hidden_dims = None
+        
         # Create model
-        print("\nCreating model...")
+        print(f"\nCreating model with {args.decoder_type} decoder...")
         model = ContrastiveModel(
             input_dim=args.input_dim,
             d_model=args.d_model,
@@ -319,6 +359,19 @@ def main():
             temperature=args.temperature,
             combination_method=args.combination_method,
             use_contrastive=args.use_contrastive,
+            # Decoder parameters
+            decoder_type=args.decoder_type,
+            decoder_hidden_dims=decoder_hidden_dims,
+            decoder_tcn_kernel_size=args.decoder_tcn_kernel_size,
+            decoder_tcn_num_layers=args.decoder_tcn_num_layers,
+            decoder_transformer_nhead=args.decoder_transformer_nhead,
+            decoder_transformer_num_layers=args.decoder_transformer_num_layers,
+            decoder_dim_feedforward=args.decoder_dim_feedforward,
+            decoder_hybrid_tcn_kernel_size=args.decoder_hybrid_tcn_kernel_size,
+            decoder_hybrid_tcn_num_layers=args.decoder_hybrid_tcn_num_layers,
+            decoder_hybrid_transformer_nhead=args.decoder_hybrid_transformer_nhead,
+            decoder_hybrid_transformer_num_layers=args.decoder_hybrid_transformer_num_layers,
+            decoder_hybrid_dim_feedforward=args.decoder_hybrid_dim_feedforward,
             augmentation_kwargs={
                 # Only pass if provided; ContrastiveModel will fallback to model params
                 **({ 'nhead': args.aug_nhead } if args.aug_nhead is not None else {}),
