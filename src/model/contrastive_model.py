@@ -302,24 +302,29 @@ class ContrastiveModel(nn.Module):
     
     def compute_reconstruction_loss(self, 
                                   original_data: torch.Tensor, 
-                                  reconstructed_data: torch.Tensor) -> torch.Tensor:
+                                  reconstructed_data: torch.Tensor,
+                                  l1_weight: float = 0.01) -> torch.Tensor:
         """
-        Compute reconstruction loss (MSE)
+        Compute reconstruction loss (MSE + L1 regularization)
         
         Args:
             original_data: Original data tensor
             reconstructed_data: Reconstructed data tensor
+            l1_weight: Weight for L1 regularization
         
         Returns:
             Reconstruction loss
         """
-        return F.mse_loss(reconstructed_data, original_data)
+        mse_loss = F.mse_loss(reconstructed_data, original_data)
+        l1_loss = F.l1_loss(reconstructed_data, original_data)
+        return mse_loss + l1_weight * l1_loss
     
     def compute_total_loss(self, 
                           original_data: torch.Tensor, 
                           augmented_data: torch.Tensor,
                           contrastive_weight: float = 1.0,
                           reconstruction_weight: float = 1.0,
+                          l1_weight: float = 0.01,
                           labels: Optional[torch.Tensor] = None,
                           epsilon: float = 1e-5) -> Dict[str, torch.Tensor]:
         """
@@ -330,6 +335,7 @@ class ContrastiveModel(nn.Module):
             augmented_data: Augmented data tensor
             contrastive_weight: Weight for contrastive loss
             reconstruction_weight: Weight for reconstruction loss
+            l1_weight: Weight for L1 regularization in reconstruction loss
             labels: Optional labels for supervised contrastive learning
             epsilon: Small constant for numerical stability in contrastive loss
         
@@ -353,7 +359,8 @@ class ContrastiveModel(nn.Module):
         # Compute reconstruction loss
         reconstruction_loss = self.compute_reconstruction_loss(
             original_data,
-            outputs['reconstructed']
+            outputs['reconstructed'],
+            l1_weight
         )
         
         # Total loss

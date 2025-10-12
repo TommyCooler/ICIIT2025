@@ -123,6 +123,8 @@ def parse_args():
                        help='Weight for contrastive loss')
     parser.add_argument('--reconstruction_weight', type=float, default=1.0,
                        help='Weight for reconstruction loss')
+    parser.add_argument('--l1_weight', type=float, default=0.01,
+                       help='Weight for L1 regularization in reconstruction loss')
     parser.add_argument('--epsilon', type=float, default=1e-5,
                        help='Small constant for numerical stability in contrastive loss')
     # Masking options for training (augmented input masking)
@@ -395,6 +397,7 @@ def main():
             weight_decay=args.weight_decay,
             contrastive_weight=args.contrastive_weight,
             reconstruction_weight=args.reconstruction_weight,
+            l1_weight=args.l1_weight,
             epsilon=args.epsilon,
             device=device,
             save_dir=save_dir,

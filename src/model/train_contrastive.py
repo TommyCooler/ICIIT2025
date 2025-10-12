@@ -26,6 +26,7 @@ class ContrastiveTrainer:
                  weight_decay: float = 1e-5,
                  contrastive_weight: float = 1.0,
                  reconstruction_weight: float = 1.0,
+                 l1_weight: float = 0.01,
                  epsilon: float = 1e-5,
                  device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
                  save_dir: str = 'checkpoints',
@@ -45,6 +46,7 @@ class ContrastiveTrainer:
             weight_decay: Weight decay for optimizer
             contrastive_weight: Weight for contrastive loss
             reconstruction_weight: Weight for reconstruction loss
+            l1_weight: Weight for L1 regularization in reconstruction loss
             epsilon: Small constant for numerical stability in contrastive loss
             device: Device to run training on
             save_dir: Directory to save checkpoints
@@ -67,6 +69,7 @@ class ContrastiveTrainer:
         # Loss weights
         self.contrastive_weight = contrastive_weight
         self.reconstruction_weight = reconstruction_weight
+        self.l1_weight = l1_weight
         self.epsilon = epsilon
         
         # Optimizer
@@ -216,6 +219,7 @@ class ContrastiveTrainer:
                 augmented_batch,
                 contrastive_weight=self.contrastive_weight,
                 reconstruction_weight=self.reconstruction_weight,
+                l1_weight=self.l1_weight,
                 epsilon=self.epsilon
             )
             
@@ -298,6 +302,7 @@ class ContrastiveTrainer:
                     augmented_batch,
                     contrastive_weight=self.contrastive_weight,
                     reconstruction_weight=self.reconstruction_weight,
+                    l1_weight=self.l1_weight,
                     epsilon=self.epsilon
                 )
                 
