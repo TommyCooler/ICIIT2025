@@ -216,7 +216,7 @@ class Augmentation(nn.Module):
             self.transformer_projection = None
         
         # Weight parameters for combining outputs
-        self.alpha = nn.Parameter(torch.ones(5) / 5)  # 5 modules
+        self.alpha = nn.Parameter(torch.ones(6) / 6)  # 5 modules
         
     def forward(self, x):
         """

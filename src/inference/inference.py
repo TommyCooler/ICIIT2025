@@ -91,45 +91,40 @@ def get_dataset_paths(dataset_type: str, base_data_path: str) -> Dict[str, str]:
             'file_pattern': '*_test.npy'
         },
         'ecg': {
-            'test_path': os.path.join(base_data_path, 'ecg', 'labeled', 'test'),
-            'train_path': os.path.join(base_data_path, 'ecg', 'labeled', 'train'),
+            'test_path': os.path.join(base_data_path, 'labeled', 'test'),
+            'train_path': os.path.join(base_data_path, 'labeled', 'train'),
             'file_pattern': '*.pkl'
         },
         'pd': {
-            'test_path': os.path.join(base_data_path, 'pd', 'labeled', 'test'),
-            'train_path': os.path.join(base_data_path, 'pd', 'labeled', 'train'),
+            'test_path': os.path.join(base_data_path, 'labeled', 'test'),
+            'train_path': os.path.join(base_data_path, 'labeled', 'train'),
             'file_pattern': '*.pkl'
         },
         'psm': {
-            'test_path': os.path.join(base_data_path, 'psm'),
-            'train_path': os.path.join(base_data_path, 'psm'),
+            'test_path': base_data_path,
+            'train_path': base_data_path,
             'file_pattern': 'test.csv'
         },
         'nab': {
-            'test_path': os.path.join(base_data_path, 'nab'),
-            'train_path': os.path.join(base_data_path, 'nab'),
+            'test_path': base_data_path,
+            'train_path': base_data_path,
             'file_pattern': '*_test.npy'
         },
         'smap_msl': {
-            'test_path': os.path.join(base_data_path, 'smap_msl_', 'processed'),
-            'train_path': os.path.join(base_data_path, 'smap_msl_', 'processed'),
+            'test_path': os.path.join(base_data_path, 'processed'),
+            'train_path': os.path.join(base_data_path, 'processed'),
             'file_pattern': '*_test.npy'
         },
         'smd': {
-            'test_path': os.path.join(base_data_path, 'smd'),
-            'train_path': os.path.join(base_data_path, 'smd'),
+            'test_path': base_data_path,
+            'train_path': base_data_path,
             'file_pattern': '*_test.npy'
         },
         'gesture': {
-            'test_path': os.path.join(base_data_path, 'gesture', 'labeled', 'test'),
-            'train_path': os.path.join(base_data_path, 'gesture', 'labeled', 'train'),
+            'test_path': os.path.join(base_data_path, 'labeled', 'test'),
+            'train_path': os.path.join(base_data_path, 'labeled', 'train'),
             'file_pattern': '*.pkl'
         },
-        'nab': {
-            'test_path': os.path.join(base_data_path, 'nab'),
-            'train_path': os.path.join(base_data_path, 'nab'),
-            'file_pattern': '*_test.npy'
-        }
     }
     
     return dataset_paths.get(dataset_type, dataset_paths['ecg'])
