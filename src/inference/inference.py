@@ -1510,7 +1510,7 @@ def main():
                 threshold_results['anomaly_detection_rate'] = np.sum(predictions) / len(predictions) if len(predictions) > 0 else 0.0
                 
                 # Print file-specific results
-                print(f"  File: {os.path.basename(test_file)}")
+                print(f"  Dataset: {args.dataset_name if args.dataset_name else args.dataset}")
                 print(f"  Total samples: {threshold_results['total_samples']}")
                 print(f"  Total anomalies (GT): {threshold_results['total_anomalies']}")
                 print(f"  Detected anomalies: {threshold_results['detected_anomalies']}")
@@ -1529,15 +1529,15 @@ def main():
             performance = inference.evaluate_performance(
                 labels, timestep_anomalies, args.window_size, args.stride, use_adjustment=True
             )
-            performance['filename'] = os.path.basename(test_file)
+            performance['filename'] = args.dataset_name if args.dataset_name else args.dataset
             
-            print(f"\n🎯 Performance for {os.path.basename(test_file)}:")
+            print(f"\n🎯 Performance for {args.dataset_name if args.dataset_name else args.dataset}:")
             print(f"  F1-Score: {performance['f1_score']:.4f}")
             print(f"  Precision: {performance['precision']:.4f}")
             print(f"  Recall: {performance['recall']:.4f}")
             print(f"  Accuracy: {performance['accuracy']:.4f}")
         else:
-            print(f"\n📊 Statistics for {os.path.basename(test_file)}:")
+            print(f"\n📊 Statistics for {args.dataset_name if args.dataset_name else args.dataset}:")
             print(f"  Total timesteps processed: {len(timestep_scores)}")
             print(f"  Mean anomaly score: {np.mean(timestep_scores):.6f}")
             print(f"  Std anomaly score: {np.std(timestep_scores):.6f}")
@@ -1546,7 +1546,7 @@ def main():
         
         # Plot inference results
         if args.save_plot:
-            plot_path = os.path.join(args.output_dir, f'inference_results_{os.path.basename(test_file).replace(".pkl", "").replace(".npy", "").replace(".csv", "")}.png')
+            plot_path = os.path.join(args.output_dir, f'inference_results_{args.dataset_name if args.dataset_name else args.dataset}.png')
             
             # Get best threshold if available
             best_threshold = None
@@ -1558,7 +1558,7 @@ def main():
             )
         
     except Exception as e:
-        print(f"❌ Error processing {test_file}: {e}")
+        print(f"❌ Error processing {args.dataset_name if args.dataset_name else args.dataset}: {e}")
         import traceback
         traceback.print_exc()
         return
@@ -1570,7 +1570,7 @@ def main():
         print(f"{'='*60}")
         
         # Save threshold analysis results to Excel
-        excel_path = os.path.join(args.output_dir, f'threshold_analysis_{args.dataset}_{os.path.basename(test_file).replace(".pkl", "").replace(".npy", "").replace(".csv", "")}.xlsx')
+        excel_path = os.path.join(args.output_dir, f'threshold_analysis_{args.dataset}_{args.dataset_name if args.dataset_name else "default"}.xlsx')
         
         # Get additional info from config
         additional_info = {}
@@ -1628,7 +1628,7 @@ def main():
             'Model_Parameters': sum(p.numel() for p in inference.model.parameters()),
             'Device': inference.device,
             'Model_Architecture': 'ContrastiveModel',
-            'Test_File': os.path.basename(test_file),
+            'Test_File': args.dataset_name if args.dataset_name else args.dataset,
             'Best_Threshold': threshold_results['best_threshold'],
             'Best_F1_Score': threshold_results['best_metrics']['f1'],
             'Best_Precision': threshold_results['best_metrics']['precision'],
@@ -1646,7 +1646,7 @@ def main():
     print(f"\n{'='*60}")
     print("INFERENCE COMPLETED SUCCESSFULLY")
     print(f"{'='*60}")
-    print(f"Processed file: {os.path.basename(test_file)}")
+    print(f"Processed dataset: {args.dataset_name if args.dataset_name else args.dataset}")
     print(f"Results saved to: {args.output_dir}")
     
     if performance:
