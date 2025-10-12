@@ -553,8 +553,11 @@ class ContrastiveInference:
                     if window_idx == 0:
                         # First window [0:window_size-1]: use all timesteps
                         timestep_scores[start_idx:end_idx] = mean_absolute_error[j][:valid_len]
+                    elif window_idx == n_windows - 1:
+                        # Last window: use all remaining timesteps to ensure full coverage
+                        timestep_scores[start_idx:end_idx] = mean_absolute_error[j][:valid_len]
                     else:
-                        # Subsequent windows [i:i+window_size-1]: only use the last timestep
+                        # Middle windows [i:i+window_size-1]: only use the last timestep
                         last_timestep_idx = end_idx - 1
                         if last_timestep_idx < time_steps:
                             timestep_scores[last_timestep_idx] = mean_absolute_error[j][valid_len - 1]
@@ -654,8 +657,16 @@ class ContrastiveInference:
                         for t in range(valid_len):
                             reconstruction[:, start_idx + t] += reconstructed_np[j, t, :]
                             reconstruction_counts[start_idx + t] += 1
+                    elif window_idx == n_windows - 1:
+                        # Last window: use all remaining timesteps to ensure full coverage
+                        timestep_scores[start_idx:end_idx] = mean_absolute_error[j][:valid_len]
+                        
+                        # Add reconstruction for all timesteps
+                        for t in range(valid_len):
+                            reconstruction[:, start_idx + t] += reconstructed_np[j, t, :]
+                            reconstruction_counts[start_idx + t] += 1
                     else:
-                        # Subsequent windows [i:i+window_size-1]: only use the last timestep
+                        # Middle windows [i:i+window_size-1]: only use the last timestep
                         last_timestep_idx = end_idx - 1
                         if last_timestep_idx < time_steps:
                             timestep_scores[last_timestep_idx] = mean_absolute_error[j][valid_len - 1]

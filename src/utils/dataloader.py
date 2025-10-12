@@ -118,8 +118,8 @@ class ECGDatasetLoader:
     def load_dataset(self, dataset_name: str) -> Dict[str, Union[np.ndarray, BaseDataset]]:
         """Load a specific ECG dataset"""
         # Load training and test data
-        train_path = os.path.normpath(os.path.join(self.data_path, "labeled", "train", dataset_name))
-        test_path = os.path.normpath(os.path.join(self.data_path, "labeled", "test", dataset_name))
+        train_path = os.path.normpath(os.path.join(self.data_path, "labeled", "train", f"{dataset_name}.pkl"))
+        test_path = os.path.normpath(os.path.join(self.data_path, "labeled", "test", f"{dataset_name}.pkl"))
         
         if not os.path.exists(train_path):
             raise FileNotFoundError(f"Train file not found: {train_path}")
@@ -208,8 +208,8 @@ class PDDatasetLoader:
     def load_dataset(self, dataset_name: str) -> Dict[str, Union[np.ndarray, BaseDataset]]:
         """Load a specific PD dataset as 1D feature time series"""
         # Paths
-        train_path = os.path.normpath(os.path.join(self.data_path, "labeled", "train", dataset_name))
-        test_path = os.path.normpath(os.path.join(self.data_path, "labeled", "test", dataset_name))
+        train_path = os.path.normpath(os.path.join(self.data_path, "labeled", "train", f"{dataset_name}.pkl"))
+        test_path = os.path.normpath(os.path.join(self.data_path, "labeled", "test", f"{dataset_name}.pkl"))
         
         if not os.path.exists(train_path):
             raise FileNotFoundError(f"Train file not found: {train_path}")
