@@ -35,7 +35,7 @@ class DataPreprocessing:
             if data_max > data_min:
                 normalized_data[i] = (data[i] - data_min) / (data_max - data_min)
         return normalized_data
-    
+
     @staticmethod
     def robust_normalize(data: np.ndarray) -> np.ndarray:
         """Robust normalization using median and IQR"""
@@ -63,7 +63,7 @@ class BaseDataset(Dataset):
             data: Time series data of shape (features, time_steps)
             labels: Optional labels of shape (time_steps,)
             window_size: Size of sliding window
-            stride: Step size for sliding window  
+            stride: Step size for sliding window
             preprocessing: Type of preprocessing to apply
         """
         self.data = data
@@ -178,10 +178,10 @@ def create_dataloaders(dataset_type: str, data_path: str,
     train_dataset = BaseDataset(
         data=data['train_data'],
         labels=None,  # No labels for training (unsupervised)
-            window_size=window_size,
-            stride=stride,
-            preprocessing=preprocessing
-        )
+        window_size=window_size,
+        stride=stride,
+        preprocessing=preprocessing
+    )
     
     test_dataset = BaseDataset(
         data=data['test_data'],

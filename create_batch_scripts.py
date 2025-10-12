@@ -4,7 +4,7 @@ Generate batch training scripts for all datasets with optimal configurations
 """
 
 import os
-from optimal_configs import OptimalConfigs
+from src.utils.optimal_configs import OptimalConfigs
 
 def create_batch_scripts():
     """Create batch training scripts for all datasets"""

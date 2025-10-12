@@ -311,7 +311,7 @@ def main():
     try:
         # Create dataloaders
         print("\nCreating dataloaders (no validation)...")
-        train_dataloader, val_dataloader = create_contrastive_dataloaders(
+        train_dataloader, _ = create_contrastive_dataloaders(
             dataset_type=args.dataset,
             data_path=args.data_path,
             dataset_name=args.dataset_name,
@@ -392,7 +392,6 @@ def main():
         trainer = ContrastiveTrainer(
             model=model,
             train_dataloader=train_dataloader,
-            val_dataloader=val_dataloader,
             learning_rate=args.learning_rate,
             weight_decay=args.weight_decay,
             contrastive_weight=args.contrastive_weight,

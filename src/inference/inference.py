@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from model.contrastive_model import ContrastiveModel
+from utils.dataset_loaders_fixed import get_dataset_loader
 
 
 def adjustment(gt, pred):
@@ -357,8 +358,32 @@ class ContrastiveInference:
         print(f"Batch size: {self.batch_size}")
         print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
     
+    def load_data_with_loader(self, dataset_type: str, data_path: str, dataset_name: str = None) -> Tuple[np.ndarray, np.ndarray]:
+        """Load data using the fixed dataset loaders"""
+        try:
+            # Get dataset loader
+            loader = get_dataset_loader(dataset_type, data_path, normalize=False)  # Don't normalize here, will be done by model
+            
+            # Load dataset
+            if dataset_type == 'psm':
+                data = loader.load_dataset()
+            else:
+                if not dataset_name:
+                    raise ValueError(f"Dataset name required for {dataset_type}")
+                data = loader.load_dataset(dataset_name)
+            
+            # Return test data and labels
+            test_data = data['test_data']  # (features, time_steps)
+            test_labels = data['test_labels']  # (time_steps,)
+            
+            return test_data, test_labels
+            
+        except Exception as e:
+            print(f"Error loading data with loader for {dataset_type}: {e}")
+            return None, None
+    
     def load_pickle_data(self, file_path: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Load data from pickle file (ECG, PD, Gesture datasets)"""
+        """Load data from pickle file (ECG, PD, Gesture datasets) - DEPRECATED, use load_data_with_loader instead"""
         try:
             with open(file_path, 'rb') as f:
                 data = pickle.load(f)
@@ -371,6 +396,14 @@ class ContrastiveInference:
             else:
                 test_data = data
                 labels = None
+            
+            # Ensure test_data is numpy array
+            if not isinstance(test_data, np.ndarray):
+                test_data = np.array(test_data)
+            
+            # Ensure labels is numpy array if not None
+            if labels is not None and not isinstance(labels, np.ndarray):
+                labels = np.array(labels)
             
             return test_data, labels
         except Exception as e:
@@ -1337,53 +1370,42 @@ def main():
         else:
             print("No config.json found, will process all available test files")
     
-    # Determine single test file to process
-    test_file = None
-    if args.dataset_name:
-        # Process specific file
-        if args.dataset in ['psm']:
-            test_file = os.path.join(dataset_paths['test_path'], args.dataset_name)
-        else:
-            # Add appropriate file extension based on dataset type
-            if args.dataset in ['ecg', 'pd', 'gesture']:
-                if not args.dataset_name.endswith('.pkl'):
-                    args.dataset_name += '.pkl'
-            elif args.dataset in ['nab', 'smap_msl', 'smd', 'ucr']:
-                if not args.dataset_name.endswith('_test.npy'):
-                    args.dataset_name += '_test.npy'
-            
-            test_file = os.path.join(dataset_paths['test_path'], args.dataset_name)
-        
-        if not os.path.exists(test_file):
-            print(f"❌ Specified test file not found: {test_file}")
-            return
-    else:
-        # Find the first available test file
+    # Determine dataset name to process (no need to check file existence since we use loaders)
+    if not args.dataset_name:
+        # Find the first available dataset name
         import glob
         if args.dataset in ['psm']:
             # PSM uses CSV files
             pattern = os.path.join(dataset_paths['test_path'], 'test.csv')
             files = glob.glob(pattern)
+            if files:
+                args.dataset_name = 'psm'  # PSM doesn't need specific name
         elif args.dataset in ['nab', 'smap_msl', 'smd', 'ucr']:
             # These datasets use numpy files
             pattern = os.path.join(dataset_paths['test_path'], '*_test.npy')
             files = glob.glob(pattern)
+            if files:
+                # Extract dataset name from first file
+                first_file = files[0]
+                args.dataset_name = os.path.basename(first_file).replace('_test.npy', '')
         else:
             # ECG, PD, Gesture use pickle files
             pattern = os.path.join(dataset_paths['test_path'], '*.pkl')
             files = glob.glob(pattern)
+            if files:
+                # Extract dataset name from first file
+                first_file = files[0]
+                args.dataset_name = os.path.basename(first_file).replace('.pkl', '')
         
-        if not files:
+        if not args.dataset_name:
             print(f"❌ No test files found for dataset {args.dataset}")
             print(f"Expected pattern: {dataset_paths['file_pattern']}")
             print(f"Search path: {dataset_paths['test_path']}")
             return
         
-        # Use the first file found
-        test_file = files[0]
-        print(f"Auto-selected first available test file: {os.path.basename(test_file)}")
+        print(f"Auto-selected dataset: {args.dataset_name}")
     
-    print(f"Processing single test file: {os.path.basename(test_file)}")
+    print(f"Processing dataset: {args.dataset_name}")
     
     # Configure masking
     inference.mask_mode = args.mask_mode
@@ -1408,23 +1430,22 @@ def main():
     print(f"\nStarting inference on single file...")
     
     print(f"\n{'='*60}")
-    print(f"PROCESSING: {os.path.basename(test_file)}")
+    print(f"PROCESSING: {args.dataset_name if args.dataset_name else args.dataset}")
     print(f"{'='*60}")
     
     try:
-        # Load test data based on dataset type
-        if args.dataset in ['psm']:
-            # PSM uses CSV files
-            test_data, labels = inference.load_psm_data(test_file)
-        elif args.dataset in ['nab', 'smap_msl', 'smd', 'ucr']:
-            # These datasets use numpy files
-            test_data, labels = inference.load_numpy_data(test_file, args.dataset)
-        else:
-            # ECG, PD, Gesture use pickle files
-            test_data, labels = inference.load_pickle_data(test_file)
+        # Load test data using the fixed dataset loaders
+        print(f"Loading data using fixed dataset loader for {args.dataset}...")
+        
+        # Use dataset_name directly (already processed above)
+        dataset_name = args.dataset_name
+        if args.dataset == 'psm':
+            dataset_name = None  # PSM doesn't need dataset name
+        
+        test_data, labels = inference.load_data_with_loader(args.dataset, args.data_path, dataset_name)
         
         if test_data is None:
-            print(f"❌ Failed to load data from {test_file}")
+            print(f"❌ Failed to load data for dataset {args.dataset_name if args.dataset_name else args.dataset}")
             return
         
         print(f"✅ Loaded data shape: {test_data.shape}")
@@ -1470,13 +1491,13 @@ def main():
         
         # Run threshold analysis
         if labels is not None:
-            print(f"Running threshold analysis for {os.path.basename(test_file)}...")
+            print(f"Running threshold analysis for {args.dataset_name if args.dataset_name else args.dataset}...")
             threshold_results = inference.evaluate_threshold_range(
                 timestep_scores, labels, args.num_thresholds, use_adjustment=True
             )
             
             # Add filename and additional info to threshold results
-            threshold_results['filename'] = os.path.basename(test_file)
+            threshold_results['filename'] = args.dataset_name if args.dataset_name else args.dataset
             threshold_results['data_shape'] = test_data.shape
             threshold_results['total_samples'] = len(labels)
             threshold_results['total_anomalies'] = np.sum(labels)

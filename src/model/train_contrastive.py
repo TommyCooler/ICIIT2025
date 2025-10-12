@@ -21,7 +21,6 @@ class ContrastiveTrainer:
     def __init__(self,
                  model: ContrastiveModel,
                  train_dataloader: DataLoader,
-                 val_dataloader: Optional[DataLoader] = None,
                  learning_rate: float = 1e-4,
                  weight_decay: float = 1e-5,
                  contrastive_weight: float = 1.0,
@@ -41,7 +40,6 @@ class ContrastiveTrainer:
         Args:
             model: Contrastive learning model
             train_dataloader: Training dataloader
-            val_dataloader: Validation dataloader (optional)
             learning_rate: Learning rate for optimizer
             weight_decay: Weight decay for optimizer
             contrastive_weight: Weight for contrastive loss
@@ -60,7 +58,6 @@ class ContrastiveTrainer:
         # Force CUDA usage for training
         self.model = model.to('cuda')
         self.train_dataloader = train_dataloader
-        self.val_dataloader = val_dataloader
         self.device = 'cuda'
         self.save_dir = save_dir
         self.use_wandb = use_wandb
@@ -90,7 +87,6 @@ class ContrastiveTrainer:
         
         # Training history
         self.train_losses = []
-        self.val_losses = []
         self.contrastive_losses = []
         self.reconstruction_losses = []
         
@@ -121,7 +117,6 @@ class ContrastiveTrainer:
                     'device': device,
                     'model_params': sum(p.numel() for p in model.parameters()),
                     'train_batches': len(train_dataloader),
-                    'val_batches': len(val_dataloader) if val_dataloader else 0
                 }
             )
     
@@ -275,74 +270,6 @@ class ContrastiveTrainer:
         
         return avg_losses
     
-    def validate(self) -> Dict[str, float]:
-        """Validate the model"""
-        if self.val_dataloader is None:
-            return {}
-        
-        self.model.eval()
-        total_loss = 0.0
-        total_contrastive_loss = 0.0
-        total_reconstruction_loss = 0.0
-        num_batches = 0
-        
-        with torch.no_grad():
-            pbar = tqdm(self.val_dataloader, desc="Validation")
-            for original_batch, augmented_batch in pbar:
-                # Move to device
-                original_batch = original_batch.to(self.device)
-                augmented_batch = augmented_batch.to(self.device)
-                
-                # Forward pass
-                self.model(original_batch, augmented_batch)
-                
-                # Compute losses
-                losses = self.model.compute_total_loss(
-                    original_batch,
-                    augmented_batch,
-                    contrastive_weight=self.contrastive_weight,
-                    reconstruction_weight=self.reconstruction_weight,
-                    l1_weight=self.l1_weight,
-                    epsilon=self.epsilon
-                )
-                
-                # Update metrics
-                total_loss += losses['total_loss'].item()
-                total_contrastive_loss += losses['contrastive_loss'].item()
-                total_reconstruction_loss += losses['reconstruction_loss'].item()
-                num_batches += 1
-                
-                # Update progress bar
-                pbar.set_postfix({
-                    'Loss': f"{losses['total_loss'].item():.4f}",
-                    'Contrastive': f"{losses['contrastive_loss'].item():.4f}",
-                    'Reconstruction': f"{losses['reconstruction_loss'].item():.4f}"
-                })
-                
-                # Log to wandb
-                if self.use_wandb:
-                    wandb.log({
-                        'val_batch/total_loss': losses['total_loss'].item(),
-                        'val_batch/contrastive_loss': losses['contrastive_loss'].item(),
-                        'val_batch/reconstruction_loss': losses['reconstruction_loss'].item()
-                    })
-        
-        # Compute average losses
-        avg_losses = {
-            'total_loss': total_loss / num_batches,
-            'contrastive_loss': total_contrastive_loss / num_batches,
-            'reconstruction_loss': total_reconstruction_loss / num_batches
-        }
-        
-        # Log validation epoch-level metrics to wandb
-        if self.use_wandb:
-            wandb.log({
-                'epoch/val_total_loss': avg_losses['total_loss'],
-                'epoch/val_contrastive_loss': avg_losses['contrastive_loss'],
-                'epoch/val_reconstruction_loss': avg_losses['reconstruction_loss']
-            })
-        
-        return avg_losses
     
     def train(self, num_epochs: int, start_epoch: int = 0) -> Dict[str, List[float]]:
         """Train the model for specified number of epochs"""
@@ -350,7 +277,6 @@ class ContrastiveTrainer:
         print(f"Device: {self.device}")
         print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
         
-        # Removed validation - only training
         
         # Simple epoch loop without an outer tqdm to avoid duplicate bars
         epoch_indices = range(start_epoch, start_epoch + num_epochs)
@@ -396,7 +322,6 @@ class ContrastiveTrainer:
         
         return {
             'train_losses': self.train_losses,
-            'val_losses': self.val_losses,
             'contrastive_losses': self.contrastive_losses,
             'reconstruction_losses': self.reconstruction_losses
         }
@@ -425,7 +350,6 @@ class ContrastiveTrainer:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler is not None else None,
             'train_losses': self.train_losses,
-            'val_losses': self.val_losses,
             'contrastive_losses': self.contrastive_losses,
             'reconstruction_losses': self.reconstruction_losses,
             'contrastive_weight': self.contrastive_weight,
@@ -452,7 +376,6 @@ class ContrastiveTrainer:
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         
         self.train_losses = checkpoint.get('train_losses', [])
-        self.val_losses = checkpoint.get('val_losses', [])
         self.contrastive_losses = checkpoint.get('contrastive_losses', [])
         self.reconstruction_losses = checkpoint.get('reconstruction_losses', [])
         self.best_loss = checkpoint.get('best_loss', float('inf'))
@@ -467,8 +390,6 @@ class ContrastiveTrainer:
         
         # Total loss
         axes[0, 0].plot(self.train_losses, label='Train', color='blue')
-        if self.val_losses:
-            axes[0, 0].plot(self.val_losses, label='Validation', color='red')
         axes[0, 0].set_title('Total Loss')
         axes[0, 0].set_xlabel('Epoch')
         axes[0, 0].set_ylabel('Loss')
@@ -532,10 +453,9 @@ def create_contrastive_dataloaders(dataset_type: str,
         **kwargs: Additional arguments for dataset loading
     
     Returns:
-        Tuple of (train_dataloader, val_dataloader)
+        Tuple of (train_dataloader, None)
     """
     # Load dataset using existing dataloader
-    # Disable validation split/use for training pipeline
     dataloaders = create_dataloaders(
         dataset_type=dataset_type,
         data_path=data_path,
@@ -543,7 +463,6 @@ def create_contrastive_dataloaders(dataset_type: str,
         stride=1,  # Non-overlapping windows
         batch_size=batch_size,
         num_workers=num_workers,
-        validation_ratio=0.0,
         **kwargs
     )
     
@@ -569,10 +488,8 @@ def create_contrastive_dataloaders(dataset_type: str,
         pin_memory=True
     )
     
-    # Do not construct validation dataloader (not used)
-    val_dataloader = None
     
-    return train_dataloader, val_dataloader
+    return train_dataloader, None
 
 
 # Example usage
@@ -585,7 +502,7 @@ if __name__ == "__main__":
     num_epochs = 50
     
     # Create dataloaders
-    train_dataloader, val_dataloader = create_contrastive_dataloaders(
+    train_dataloader, _ = create_contrastive_dataloaders(
         dataset_type=dataset_type,
         data_path=data_path,
         window_size=window_size,
@@ -606,7 +523,6 @@ if __name__ == "__main__":
     trainer = ContrastiveTrainer(
         model=model,
         train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
         learning_rate=1e-4,
         contrastive_weight=1.0,
         reconstruction_weight=1.0,
