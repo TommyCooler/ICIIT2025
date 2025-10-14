@@ -340,9 +340,18 @@ class ContrastiveInference:
             augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
         )
         
-        # Load state dict - allow missing keys for backward compatibility
+        # Initialize bias1 parameters by running a dummy forward pass
+        # This ensures all parameters exist before loading checkpoint
+        print("Initializing augmentation parameters...")
+        dummy_input = torch.randn(1, 100, self.input_dim).to(self.device)
+        with torch.no_grad():
+            self.model.eval()
+            # Run forward pass to initialize bias1 parameters
+            _ = self.model(dummy_input, dummy_input)
+        
+        # Load state dict - now all parameters should exist
         state_dict = checkpoint['model_state_dict']
-        missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
+        missing, unexpected = self.model.load_state_dict(state_dict, strict=True)
         if missing:
             print(f"Warning: Missing keys when loading state_dict (will be initialized randomly): {missing}")
         if unexpected:
