@@ -8,6 +8,7 @@ import pickle
 import numpy as np
 import pandas as pd
 from typing import Dict
+from sklearn.preprocessing import StandardScaler
 
 class ECGDatasetLoader:
     """Loader for ECG datasets - labels are in the last column of data"""
@@ -59,11 +60,15 @@ class ECGDatasetLoader:
         
         # Normalize if required (only features, not labels)
         if self.normalize:
-            train_min = np.min(train_features)
-            train_max = np.max(train_features)
-            if train_max > train_min:
-                train_features = (train_features - train_min) / (train_max - train_min)
-                test_features = (test_features - train_min) / (train_max - train_min)
+            # Use StandardScaler: fit on train, transform both train and test
+            scaler = StandardScaler()
+            # Fit scaler on train data (features only)
+            train_features_scaled = scaler.fit_transform(train_features.T)  # (time_steps, features)
+            # Transform test data using train statistics
+            test_features_scaled = scaler.transform(test_features.T)  # (time_steps, features)
+            # Transpose back to (features, time_steps)
+            train_features = train_features_scaled.T
+            test_features = test_features_scaled.T
         
         return {
             'train_data': train_features,
@@ -122,11 +127,15 @@ class PDDatasetLoader:
         
         # Normalize if required (only features, not labels)
         if self.normalize:
-            train_min = np.min(train_features)
-            train_max = np.max(train_features)
-            if train_max > train_min:
-                train_features = (train_features - train_min) / (train_max - train_min)
-                test_features = (test_features - train_min) / (train_max - train_min)
+            # Use StandardScaler: fit on train, transform both train and test
+            scaler = StandardScaler()
+            # Fit scaler on train data (features only)
+            train_features_scaled = scaler.fit_transform(train_features.T)  # (time_steps, features)
+            # Transform test data using train statistics
+            test_features_scaled = scaler.transform(test_features.T)  # (time_steps, features)
+            # Transpose back to (features, time_steps)
+            train_features = train_features_scaled.T
+            test_features = test_features_scaled.T
         
         return {
             'train_data': train_features,
@@ -185,11 +194,15 @@ class GestureDatasetLoader:
         
         # Normalize if required (only features, not labels)
         if self.normalize:
-            train_min = np.min(train_features)
-            train_max = np.max(train_features)
-            if train_max > train_min:
-                train_features = (train_features - train_min) / (train_max - train_min)
-                test_features = (test_features - train_min) / (train_max - train_min)
+            # Use StandardScaler: fit on train, transform both train and test
+            scaler = StandardScaler()
+            # Fit scaler on train data (features only)
+            train_features_scaled = scaler.fit_transform(train_features.T)  # (time_steps, features)
+            # Transform test data using train statistics
+            test_features_scaled = scaler.transform(test_features.T)  # (time_steps, features)
+            # Transpose back to (features, time_steps)
+            train_features = train_features_scaled.T
+            test_features = test_features_scaled.T
         
         return {
             'train_data': train_features,
@@ -242,11 +255,15 @@ class PSMDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            train_min = np.min(train_data)
-            train_max = np.max(train_data)
-            if train_max > train_min:
-                train_data = (train_data - train_min) / (train_max - train_min)
-                test_data = (test_data - train_min) / (train_max - train_min)
+            # Use StandardScaler: fit on train, transform both train and test
+            scaler = StandardScaler()
+            # Fit scaler on train data (features only)
+            train_data_scaled = scaler.fit_transform(train_data.T)  # (time_steps, features)
+            # Transform test data using train statistics
+            test_data_scaled = scaler.transform(test_data.T)  # (time_steps, features)
+            # Transpose back to (features, time_steps)
+            train_data = train_data_scaled.T
+            test_data = test_data_scaled.T
         
         # PSM datasets: train is normal (no labels), test has ground truth labels
         train_labels = np.zeros(train_data.shape[1])
@@ -295,11 +312,15 @@ class UCRDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            train_min = np.min(train_data)
-            train_max = np.max(train_data)
-            if train_max > train_min:
-                train_data = (train_data - train_min) / (train_max - train_min)
-                test_data = (test_data - train_min) / (train_max - train_min)
+            # Use StandardScaler: fit on train, transform both train and test
+            scaler = StandardScaler()
+            # Fit scaler on train data (features only)
+            train_data_scaled = scaler.fit_transform(train_data.T)  # (time_steps, features)
+            # Transform test data using train statistics
+            test_data_scaled = scaler.transform(test_data.T)  # (time_steps, features)
+            # Transpose back to (features, time_steps)
+            train_data = train_data_scaled.T
+            test_data = test_data_scaled.T
         
         # UCR datasets: train is normal (no labels), test has ground truth labels
         train_labels = np.zeros(train_data.shape[1])
@@ -357,11 +378,15 @@ class NABDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            train_min = np.min(train_data)
-            train_max = np.max(train_data)
-            if train_max > train_min:
-                train_data = (train_data - train_min) / (train_max - train_min)
-                test_data = (test_data - train_min) / (train_max - train_min)
+            # Use StandardScaler: fit on train, transform both train and test
+            scaler = StandardScaler()
+            # Fit scaler on train data (features only)
+            train_data_scaled = scaler.fit_transform(train_data.T)  # (time_steps, features)
+            # Transform test data using train statistics
+            test_data_scaled = scaler.transform(test_data.T)  # (time_steps, features)
+            # Transpose back to (features, time_steps)
+            train_data = train_data_scaled.T
+            test_data = test_data_scaled.T
         
         # NAB datasets: train is normal (no labels), test has ground truth labels
         train_labels = np.zeros(train_data.shape[1])
@@ -420,11 +445,15 @@ class SMDDatasetLoader:
         
         # Normalize if required
         if self.normalize:
-            train_min = np.min(train_data)
-            train_max = np.max(train_data)
-            if train_max > train_min:
-                train_data = (train_data - train_min) / (train_max - train_min)
-                test_data = (test_data - train_min) / (train_max - train_min)
+            # Use StandardScaler: fit on train, transform both train and test
+            scaler = StandardScaler()
+            # Fit scaler on train data (features only)
+            train_data_scaled = scaler.fit_transform(train_data.T)  # (time_steps, features)
+            # Transform test data using train statistics
+            test_data_scaled = scaler.transform(test_data.T)  # (time_steps, features)
+            # Transpose back to (features, time_steps)
+            train_data = train_data_scaled.T
+            test_data = test_data_scaled.T
         
         # SMD datasets: train is normal (no labels), test has ground truth labels
         train_labels = np.zeros(train_data.shape[1])

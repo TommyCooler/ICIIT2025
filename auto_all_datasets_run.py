@@ -25,48 +25,48 @@ DATASET_CONFIGS = {
         'file_pattern': "*_train.npy",
         'output_dir': os.path.join(OUTPUT_BASE, "ucr")
     },
-    'pd': {
-        'data_path': os.path.join(DATASETS_DIR, "pd"),
-        'train_dir': os.path.join(DATASETS_DIR, "pd", "labeled", "train"),
-        'test_dir': os.path.join(DATASETS_DIR, "pd", "labeled", "test"),
-        'file_pattern': "*.pkl",
-        'output_dir': os.path.join(OUTPUT_BASE, "pd")
-    },
-    'gesture': {
-        'data_path': os.path.join(DATASETS_DIR, "gesture"),
-        'train_dir': os.path.join(DATASETS_DIR, "gesture", "labeled", "train"),
-        'test_dir': os.path.join(DATASETS_DIR, "gesture", "labeled", "test"),
-        'file_pattern': "*.pkl",
-        'output_dir': os.path.join(OUTPUT_BASE, "gesture")
-    },
-    'ecg': {
-        'data_path': os.path.join(DATASETS_DIR, "ecg"),
-        'train_dir': os.path.join(DATASETS_DIR, "ecg", "labeled", "train"),
-        'test_dir': os.path.join(DATASETS_DIR, "ecg", "labeled", "test"),
-        'file_pattern': "*.pkl",
-        'output_dir': os.path.join(OUTPUT_BASE, "ecg")
-    },
-    'psm': {
-        'data_path': os.path.join(DATASETS_DIR, "psm"),
-        'train_dir': os.path.join(DATASETS_DIR, "psm"),
-        'test_dir': os.path.join(DATASETS_DIR, "psm"),
-        'file_pattern': "train.csv",  # PSM has single train/test files
-        'output_dir': os.path.join(OUTPUT_BASE, "psm")
-    },
-    'smap_msl': {
-        'data_path': os.path.join(DATASETS_DIR, "smap_msl_"),
-        'train_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
-        'test_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
-        'file_pattern': "*_train.npy",
-        'output_dir': os.path.join(OUTPUT_BASE, "smap_msl")
-    },
-    'smd': {
-        'data_path': os.path.join(DATASETS_DIR, "smd"),
-        'train_dir': os.path.join(DATASETS_DIR, "smd"),
-        'test_dir': os.path.join(DATASETS_DIR, "smd"),
-        'file_pattern': "*_train.npy",
-        'output_dir': os.path.join(OUTPUT_BASE, "smd")
-    },
+    # 'pd': {
+    #     'data_path': os.path.join(DATASETS_DIR, "pd"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "pd", "labeled", "train"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "pd", "labeled", "test"),
+    #     'file_pattern': "*.pkl",
+    #     'output_dir': os.path.join(OUTPUT_BASE, "pd")
+    # },
+    # 'gesture': {
+    #     'data_path': os.path.join(DATASETS_DIR, "gesture"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "gesture", "labeled", "train"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "gesture", "labeled", "test"),
+    #     'file_pattern': "*.pkl",
+    #     'output_dir': os.path.join(OUTPUT_BASE, "gesture")
+    # },
+    # 'ecg': {
+    #     'data_path': os.path.join(DATASETS_DIR, "ecg"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "ecg", "labeled", "train"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "ecg", "labeled", "test"),
+    #     'file_pattern': "*.pkl",
+    #     'output_dir': os.path.join(OUTPUT_BASE, "ecg")
+    # },
+    # 'psm': {
+    #     'data_path': os.path.join(DATASETS_DIR, "psm"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "psm"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "psm"),
+    #     'file_pattern': "train.csv",  # PSM has single train/test files
+    #     'output_dir': os.path.join(OUTPUT_BASE, "psm")
+    # },
+    # 'smap_msl': {
+    #     'data_path': os.path.join(DATASETS_DIR, "smap_msl_"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "smap_msl_", "processed"),
+    #     'file_pattern': "*_train.npy",
+    #     'output_dir': os.path.join(OUTPUT_BASE, "smap_msl")
+    # },
+    # 'smd': {
+    #     'data_path': os.path.join(DATASETS_DIR, "smd"),
+    #     'train_dir': os.path.join(DATASETS_DIR, "smd"),
+    #     'test_dir': os.path.join(DATASETS_DIR, "smd"),
+    #     'file_pattern': "*_train.npy",
+    #     'output_dir': os.path.join(OUTPUT_BASE, "smd")
+    # },
     # 'nab': {
     #     'data_path': os.path.join(DATASETS_DIR, "nab"),
     #     'train_dir': os.path.join(DATASETS_DIR, "nab"),

@@ -38,21 +38,21 @@ def parse_args():
     # Model arguments
     parser.add_argument('--input_dim', type=int, default=None,
                        help='Input dimension (number of features). If not set, auto-detected')
-    parser.add_argument('--d_model', type=int, default=256,
+    parser.add_argument('--d_model', type=int, default=128,
                        help='Model dimension for transformer')
     parser.add_argument('--projection_dim', type=int, default=128,
                        help='Dimension for contrastive learning projection')
     parser.add_argument('--nhead', type=int, default=4,
                        help='Number of attention heads')
-    parser.add_argument('--transformer_layers', type=int, default=6,
+    parser.add_argument('--transformer_layers', type=int, default=2,
                        help='Number of transformer encoder layers')
     parser.add_argument('--tcn_output_dim', type=int, default=None,
                        help='Output dimension for TCN')
     parser.add_argument('--tcn_kernel_size', type=int, default=3,
                        help='Kernel size for TCN')
-    parser.add_argument('--tcn_num_layers', type=int, default=4,
+    parser.add_argument('--tcn_num_layers', type=int, default=1,
                        help='Number of TCN layers')
-    parser.add_argument('--dropout', type=float, default=0.1,
+    parser.add_argument('--dropout', type=float, default=0.01,
                        help='Dropout rate')
     parser.add_argument('--temperature', type=float, default=1,
                        help='Temperature for InfoNCE loss')
@@ -61,8 +61,8 @@ def parse_args():
                        help='Method for combining TCN and Transformer outputs')
     
     # Decoder arguments
-    parser.add_argument('--decoder_type', type=str, default='tcn',
-                       choices=['mlp', 'tcn', 'transformer', 'hybrid'],
+    parser.add_argument('--decoder_type', type=str, default='custom_linear',
+                       choices=['mlp', 'tcn', 'transformer', 'hybrid', 'custom_linear'],
                        help='Type of decoder architecture')
     parser.add_argument('--decoder_hidden_dims', type=str, default=None,
                        help='Comma-separated hidden dimensions for MLP decoder (e.g., "256,128,64")')
@@ -99,7 +99,7 @@ def parse_args():
                        help='Augmentation TCN kernel size (override; default: model tcn_kernel_size)')
     parser.add_argument('--aug_tcn_num_layers', type=int, default=1,
                        help='Augmentation TCN number of layers')
-    parser.add_argument('--aug_dropout', type=float, default=0.1,
+    parser.add_argument('--aug_dropout', type=float, default=0.01,
                        help='Augmentation dropout (override; default: model dropout)')
     parser.add_argument('--aug_temperature', type=float, default=None,
                        help='Augmentation temperature (override; default: model temperature)')

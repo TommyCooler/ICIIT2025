@@ -1,12 +1,32 @@
-torch>=2.1.0
-numpy>=1.23.0
-pandas>=2.0.0
+# Core ML/DL libraries (CUDA-enabled)
+torch==2.1.0+cu121
+torchvision==0.16.0+cu121
+torchaudio==2.1.0+cu121
+numpy==1.24.4
+pandas==2.0.3
 scipy>=1.10.0
 scikit-learn>=1.3.0
+
+# Visualization libraries
 matplotlib>=3.7.0
 seaborn>=0.12.2
+
+# Progress and logging
 tqdm>=4.66.0
 wandb>=0.15.0
+
+# Process management
+setproctitle>=1.3.0
+
+# Timezone support
+pytz==2023.3
+
+# Excel/CSV processing
 openpyxl>=3.1.2
 xlrd>=2.0.1
 XlsxWriter>=3.1.2
+
+# Standard library modules (included with Python)
+# - os, sys, subprocess, glob, shutil, pathlib
+# - pickle, json, csv, datetime, argparse
+# - typing, math

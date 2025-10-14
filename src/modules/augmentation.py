@@ -4,34 +4,104 @@ import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 import math
 
-
 class LinearAugmentation(nn.Module):
-    """Linear layer for augmentation"""
+    """
+    Augment theo 2 bước (giống CustomLinear của bạn), nhưng giữ NGUYÊN shape:
+      Input  : (B, T, F) hoặc (B, F, T)
+      Output : cùng shape như input
+    """
     def __init__(self, input_dim, output_dim, dropout=0.1):
-        super(LinearAugmentation, self).__init__()
-        self.linear = nn.Linear(input_dim, output_dim)
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         
+        # weights1: chiếu theo feature (F_out=F, F_in=F)
+        self.weights1 = nn.Parameter(torch.empty(self.output_dim, self.input_dim))
+        # bias1: sẽ được tạo động dựa trên input shape
+        self.bias1 = None
+        
+        # init giống phong cách bạn dùng
+        nn.init.normal_(self.weights1, mean=0.0, std=0.001)
+        
+        self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+
+    def _ensure_bias(self, seq_len):
+        """Ensure bias is created for given sequence length"""
+        if self.bias1 is None or self.bias1.shape[1] != seq_len:
+            # Create bias1: (F, T)
+            self.bias1 = nn.Parameter(torch.empty(self.output_dim, seq_len, device=self.weights1.device))
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights1)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias1, -bound, bound)
+
     def forward(self, x):
-        x = self.linear(x)
-        return x
+        # x shape: (batch_size, seq_len, input_dim)
+        _, T, _ = x.shape
+        
+        # Ensure bias exists for this sequence length
+        self._ensure_bias(T)
+        
+        # Transpose to (B, F, T) for matrix multiplication
+        x_ft = x.transpose(1, 2)  # (B, F, T)
+        
+        # Apply transformation: (F_out, F_in) @ (B, F_in, T) + (F_out, T) -> (B, F_out, T)
+        y = torch.add(torch.matmul(self.weights1, x_ft), self.bias1)  # (B, F_out, T)
+        y = self.drop(y)
+        
+        # Transpose back to (B, T, F_out)
+        y = y.transpose(1, 2)  # (B, T, F_out)
+        
+        return y
 
 class MLPAugmentation(nn.Module):
+    """
+    MLP augmentation với cơ chế nhân ma trận tùy chỉnh
+    Input: (batch_size, seq_len, input_dim)
+    Output: (batch_size, seq_len, output_dim)
+    """
     def __init__(self, input_dim, output_dim, dropout=0.1):
-        super(MLPAugmentation, self).__init__()
-        self.dropout = nn.Dropout(dropout)
-        self.sequential = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(128, 128),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(128, output_dim)
-        )
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        
+        # weights1: chiếu theo feature (F_out=F, F_in=F)
+        self.weights1 = nn.Parameter(torch.empty(self.output_dim, self.input_dim))
+        # bias1: sẽ được tạo động dựa trên input shape
+        self.bias1 = None
+        
+        # init giống phong cách bạn dùng
+        nn.init.normal_(self.weights1, mean=0.0, std=0.001)
+        
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
+    def _ensure_bias(self, seq_len):
+        """Ensure bias is created for given sequence length"""
+        if self.bias1 is None or self.bias1.shape[1] != seq_len:
+            # Create bias1: (F, T)
+            self.bias1 = nn.Parameter(torch.empty(self.output_dim, seq_len, device=self.weights1.device))
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights1)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias1, -bound, bound)
+        
     def forward(self, x):
-        x = self.sequential(x)
-        return x
+        # x shape: (batch_size, seq_len, input_dim)
+        _, T, _ = x.shape
+        
+        # Ensure bias exists for this sequence length
+        self._ensure_bias(T)
+        
+        # Transpose to (B, F, T) for matrix multiplication
+        x_ft = x.transpose(1, 2)  # (B, F, T)
+        
+        # Apply transformation: (F_out, F_in) @ (B, F_in, T) + (F_out, T) -> (B, F_out, T)
+        y = torch.add(torch.matmul(self.weights1, x_ft), self.bias1)  # (B, F_out, T)
+        y = F.gelu(y)
+        y = self.dropout(y)
+        
+        # Transpose back to (B, T, F_out)
+        y = y.transpose(1, 2)  # (B, T, F_out)
+        
+        return y
 
 
 
@@ -216,7 +286,7 @@ class Augmentation(nn.Module):
             self.transformer_projection = None
         
         # Weight parameters for combining outputs
-        self.alpha = nn.Parameter(torch.ones(6) / 6)  # 5 modules
+        self.alpha = nn.Parameter(torch.ones(6) / 6)  # 6 modules
         
     def forward(self, x):
         """
@@ -243,14 +313,14 @@ class Augmentation(nn.Module):
         # Stack all outputs: (num_aug, batch, seq_len, feat)
         outputs = torch.stack([linear_out, mlp_out, cnn_out, tcn_out, lstm_out, transformer_out], dim=0)
 
-        # Learned probabilities for 5 augmentations (after temperature-scaled softmax)
-        probs = F.softmax(self.alpha / self.temperature, dim=0)  # (5,)
+        # Learned probabilities for 6 augmentations (after temperature-scaled softmax)
+        probs = F.softmax(self.alpha / self.temperature, dim=0)  # (6,)
 
         # Flatten per augmentation, apply weights, reshape back, then sum over aug dimension
         num_aug, bsz, seq_len, feat = outputs.shape
-        outputs_flat = outputs.reshape(num_aug, bsz * seq_len * feat)  # (5, N)
-        weighted_flat = torch.unsqueeze(probs, -1) * outputs_flat       # (5, N)
-        weighted = weighted_flat.reshape(num_aug, bsz, seq_len, feat)   # (5, B, T, D)
+        outputs_flat = outputs.reshape(num_aug, bsz * seq_len * feat)  # (6, N)
+        weighted_flat = torch.unsqueeze(probs, -1) * outputs_flat       # (6, N)
+        weighted = weighted_flat.reshape(num_aug, bsz, seq_len, feat)   # (6, B, T, D)
         combined_output = torch.sum(weighted, dim=0)                    # (B, T, D)
         
         return combined_output
