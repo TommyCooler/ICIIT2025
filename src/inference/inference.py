@@ -310,42 +310,75 @@ class ContrastiveInference:
             print(f"Using mask_ratio: {self.mask_ratio}")
             print(f"Using seed: {self.seed}")
         
-        # Create model
-        self.model = ContrastiveModel(
-            input_dim=self.input_dim,
-            d_model=d_model,
-            projection_dim=projection_dim,
-            nhead=nhead,
-            transformer_layers=transformer_layers,
-            tcn_output_dim=tcn_output_dim,
-            tcn_kernel_size=tcn_kernel_size,
-            tcn_num_layers=tcn_num_layers,
-            dropout=dropout,
-            temperature=temperature,
-            combination_method=combination_method,
-            use_contrastive=use_contrastive,
-            # Decoder parameters
-            decoder_type=decoder_type,
-            decoder_hidden_dims=decoder_hidden_dims,
-            decoder_tcn_kernel_size=decoder_tcn_kernel_size,
-            decoder_tcn_num_layers=decoder_tcn_num_layers,
-            decoder_transformer_nhead=decoder_transformer_nhead,
-            decoder_transformer_num_layers=decoder_transformer_num_layers,
-            decoder_dim_feedforward=decoder_dim_feedforward,
-            decoder_hybrid_tcn_kernel_size=decoder_hybrid_tcn_kernel_size,
-            decoder_hybrid_tcn_num_layers=decoder_hybrid_tcn_num_layers,
-            decoder_hybrid_transformer_nhead=decoder_hybrid_transformer_nhead,
-            decoder_hybrid_transformer_num_layers=decoder_hybrid_transformer_num_layers,
-            decoder_hybrid_dim_feedforward=decoder_hybrid_dim_feedforward,
-            augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
-        )
+        # Create model - use model config from checkpoint if available, otherwise use defaults
+        model_config = checkpoint.get('model_config', {})
+        if model_config:
+            print("Using model config from checkpoint")
+            self.model = ContrastiveModel(
+                input_dim=model_config.get('input_dim', self.input_dim),
+                d_model=model_config.get('d_model', d_model),
+                projection_dim=model_config.get('projection_dim', projection_dim),
+                nhead=model_config.get('nhead', nhead),
+                transformer_layers=model_config.get('transformer_layers', transformer_layers),
+                tcn_output_dim=model_config.get('tcn_output_dim', tcn_output_dim),
+                tcn_kernel_size=model_config.get('tcn_kernel_size', tcn_kernel_size),
+                tcn_num_layers=model_config.get('tcn_num_layers', tcn_num_layers),
+                dropout=model_config.get('dropout', dropout),
+                temperature=model_config.get('temperature', temperature),
+                combination_method=model_config.get('combination_method', combination_method),
+                use_contrastive=model_config.get('use_contrastive', use_contrastive),
+                # Decoder parameters
+                decoder_type=decoder_type,
+                decoder_hidden_dims=decoder_hidden_dims,
+                decoder_tcn_kernel_size=decoder_tcn_kernel_size,
+                decoder_tcn_num_layers=decoder_tcn_num_layers,
+                decoder_transformer_nhead=decoder_transformer_nhead,
+                decoder_transformer_num_layers=model_config.get('decoder_hybrid_transformer_num_layers', decoder_transformer_num_layers),
+                decoder_dim_feedforward=model_config.get('decoder_hybrid_dim_feedforward', decoder_dim_feedforward),
+                decoder_hybrid_tcn_kernel_size=decoder_hybrid_tcn_kernel_size,
+                decoder_hybrid_tcn_num_layers=decoder_hybrid_tcn_num_layers,
+                decoder_hybrid_transformer_nhead=decoder_hybrid_transformer_nhead,
+                decoder_hybrid_transformer_num_layers=model_config.get('decoder_hybrid_transformer_num_layers', decoder_hybrid_transformer_num_layers),
+                decoder_hybrid_dim_feedforward=model_config.get('decoder_hybrid_dim_feedforward', decoder_hybrid_dim_feedforward),
+                augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
+            )
+        else:
+            print("Using default model config (no model_config in checkpoint)")
+            self.model = ContrastiveModel(
+                input_dim=self.input_dim,
+                d_model=d_model,
+                projection_dim=projection_dim,
+                nhead=nhead,
+                transformer_layers=transformer_layers,
+                tcn_output_dim=tcn_output_dim,
+                tcn_kernel_size=tcn_kernel_size,
+                tcn_num_layers=tcn_num_layers,
+                dropout=dropout,
+                temperature=temperature,
+                combination_method=combination_method,
+                use_contrastive=use_contrastive,
+                # Decoder parameters
+                decoder_type=decoder_type,
+                decoder_hidden_dims=decoder_hidden_dims,
+                decoder_tcn_kernel_size=decoder_tcn_kernel_size,
+                decoder_tcn_num_layers=decoder_tcn_num_layers,
+                decoder_transformer_nhead=decoder_transformer_nhead,
+                decoder_transformer_num_layers=decoder_transformer_num_layers,
+                decoder_dim_feedforward=decoder_dim_feedforward,
+                decoder_hybrid_tcn_kernel_size=decoder_hybrid_tcn_kernel_size,
+                decoder_hybrid_tcn_num_layers=decoder_hybrid_tcn_num_layers,
+                decoder_hybrid_transformer_nhead=decoder_hybrid_transformer_nhead,
+                decoder_hybrid_transformer_num_layers=decoder_hybrid_transformer_num_layers,
+                decoder_hybrid_dim_feedforward=decoder_hybrid_dim_feedforward,
+                augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
+            )
         
-        # Load state dict - expect exact match with current model architecture
+        # Load state dict - allow missing/unexpected keys for backward compatibility
         state_dict = checkpoint['model_state_dict']
         missing, unexpected = self.model.load_state_dict(state_dict, strict=True)
         if missing:
-            print(f"Error: Missing keys when loading state_dict: {missing}")
-            raise ValueError(f"Model checkpoint is incompatible with current architecture. Missing keys: {missing}")
+            print(f"Warning: Missing keys when loading state_dict: {missing}")
+            print("These keys will be initialized with default values.")
         if unexpected:
             print(f"Warning: Unexpected keys when loading state_dict: {unexpected}")
             print("These keys will be ignored.")

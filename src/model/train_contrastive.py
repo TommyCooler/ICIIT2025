@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
+import json
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import wandb
@@ -343,9 +344,31 @@ class ContrastiveTrainer:
         if not should_save:
             return
         
+        # Extract model config from the model
+        model_config = {
+            'input_dim': self.model.input_dim,
+            'd_model': self.model.d_model,
+            'projection_dim': self.model.projection_dim,
+            'nhead': self.model.nhead,
+            'transformer_layers': self.model.transformer_layers,
+            'tcn_output_dim': self.model.tcn_output_dim,
+            'tcn_kernel_size': self.model.tcn_kernel_size,
+            'tcn_num_layers': self.model.tcn_num_layers,
+            'dropout': self.model.dropout,
+            'temperature': self.model.temperature,
+            'combination_method': self.model.combination_method,
+            'use_contrastive': self.model.use_contrastive,
+            'decoder_hidden_dim': self.model.decoder_hidden_dim,
+            'decoder_num_layers': self.model.decoder_num_layers,
+            'decoder_dropout': self.model.decoder_dropout,
+            'decoder_hybrid_transformer_num_layers': self.model.decoder_hybrid_transformer_num_layers,
+            'decoder_hybrid_dim_feedforward': self.model.decoder_hybrid_dim_feedforward,
+        }
+        
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
+            'model_config': model_config,
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler is not None else None,
             'train_losses': self.train_losses,
@@ -355,7 +378,9 @@ class ContrastiveTrainer:
             'reconstruction_weight': self.reconstruction_weight,
             'best_loss': self.best_loss,
             # Add window_size for inference compatibility
-            'window_size': getattr(self, 'window_size', None)
+            'window_size': getattr(self, 'window_size', None),
+            'device': self.device,
+            'use_wandb': self.use_wandb
         }
         
         # Save checkpoint with fixed filename (overwrite previous)
