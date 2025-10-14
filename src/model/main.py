@@ -147,7 +147,7 @@ def parse_args():
 # Augmentation is handled by the model, not in dataloader
     
     # LR scheduler arguments
-    parser.add_argument('--use_lr_scheduler', action='store_true', default=True,
+    parser.add_argument('--use_lr_scheduler', action='store_true', default=False,
                        help='Use learning rate scheduler')
     parser.add_argument('--scheduler_type', type=str, default='cosine',
                        choices=['cosine', 'step', 'exponential', 'plateau'],

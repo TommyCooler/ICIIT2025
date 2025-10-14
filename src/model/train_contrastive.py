@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
-import json
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import wandb

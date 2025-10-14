@@ -11,7 +11,7 @@ class CustomLinear(nn.Module):
 
         if (output_shape[1] == input_shape[1]):
             self.weights1 = nn.Parameter(torch.Tensor(output_shape[0], input_shape[0]))
-            self.bias1 = nn.Parameter(torch.Tensor(output_shape[1], output_shape[1]))
+            self.bias1 = nn.Parameter(torch.Tensor(output_shape[0], output_shape[1]))
             # nn.init.kaiming_uniform_(self.weights,  a=math.sqrt(5)) # weight init
             nn.init.normal_(self.weights1, mean=0.0, std=0.001)
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights1)
