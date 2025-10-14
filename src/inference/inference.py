@@ -343,7 +343,12 @@ class ContrastiveInference:
         # Initialize bias1 parameters by running a dummy forward pass
         # This ensures all parameters exist before loading checkpoint
         print("Initializing augmentation parameters...")
-        dummy_input = torch.randn(1, 100, self.input_dim).to(self.device)
+        self.model.to(self.device)  # Ensure model is on the correct device first
+        
+        # Use window_size from checkpoint to create correct bias1 shape
+        window_size = checkpoint.get('window_size', 100)
+        print(f"Using window_size from checkpoint: {window_size}")
+        dummy_input = torch.randn(1, window_size, self.input_dim).to(self.device)
         with torch.no_grad():
             self.model.eval()
             # Run forward pass to initialize bias1 parameters
