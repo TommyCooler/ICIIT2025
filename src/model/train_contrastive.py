@@ -44,8 +44,7 @@ class ContrastiveTrainer:
                  scheduler_type: str = 'cosine',
                  scheduler_params: Optional[Dict] = None,
                  window_size: int = None,
-                 max_len: int = 5000,
-                 aug_causal: bool = True,
+                 aug_causal: bool = False,
                  aug_pad_mode: str = 'reflect'):
         """
         Args:
@@ -65,8 +64,9 @@ class ContrastiveTrainer:
             use_lr_scheduler: Whether to use learning rate scheduler
             scheduler_type: Type of scheduler ('cosine', 'step', 'exponential', 'plateau')
             scheduler_params: Additional parameters for scheduler
-            window_size: Window size for training
-            max_len: Maximum sequence length for positional encoding
+            window_size: Window size for training (also used as max_len for positional encoding)
+            aug_causal: Causal mode for augmentation modules
+            aug_pad_mode: Padding mode for augmentation Conv1d layers
         """
         # Force CUDA usage for training
         self.model = model.to('cuda')
@@ -75,7 +75,7 @@ class ContrastiveTrainer:
         self.save_dir = save_dir
         self.use_wandb = use_wandb
         self.window_size = window_size
-        self.max_len = max_len
+        self.max_len = window_size  # Set max_len equal to window_size for positional encoding
         self.aug_causal = aug_causal
         self.aug_pad_mode = aug_pad_mode
         
@@ -373,10 +373,10 @@ class ContrastiveTrainer:
             'best_loss': self.best_loss,
             # Add window_size for inference compatibility
             'window_size': getattr(self, 'window_size', None),
-            # Add max_len for positional encoding compatibility
-            'max_len': getattr(self, 'max_len', 5000),
+            # Add max_len for positional encoding compatibility (same as window_size)
+            'max_len': getattr(self, 'max_len', getattr(self, 'window_size', 16)),
             # Add augmentation parameters
-            'aug_causal': getattr(self, 'aug_causal', True),
+            'aug_causal': getattr(self, 'aug_causal', False),
             'aug_pad_mode': getattr(self, 'aug_pad_mode', 'reflect')
         }
         

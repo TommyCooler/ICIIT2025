@@ -65,8 +65,6 @@ def parse_args():
     parser.add_argument('--combination_method', type=str, default='stack',
                        choices=['concat', 'stack'],
                        help='Method for combining TCN and Transformer outputs')
-    parser.add_argument('--max_len', type=int, default=5000,
-                       help='Maximum sequence length for positional encoding')
     
     # Decoder arguments
     parser.add_argument('--decoder_type', type=str, default='custom_linear',
@@ -423,7 +421,6 @@ def main():
             project_name=args.project_name,
             experiment_name=args.experiment_name,
             window_size=args.window_size,
-            max_len=args.window_size,
             aug_causal=args.aug_causal,
             aug_pad_mode=args.aug_pad_mode,
             use_lr_scheduler=args.use_lr_scheduler,
