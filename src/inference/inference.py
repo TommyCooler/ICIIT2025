@@ -199,8 +199,6 @@ class ContrastiveInference:
             self.window_size = config.get('window_size', 16)
             # Load batch_size from config to ensure consistency with training
             self.batch_size = config.get('batch_size', 32)
-            # Load max_len from config for positional encoding (should equal window_size)
-            max_len = config.get('max_len', self.window_size)
             # Augmentation-specific hyperparameters (optional)
             self.aug_kwargs = {}
             if 'aug_nhead' in config and config['aug_nhead'] is not None:
@@ -291,8 +289,6 @@ class ContrastiveInference:
             self.window_size = checkpoint.get('window_size', 16)
             # Load batch_size from checkpoint if available
             self.batch_size = checkpoint.get('batch_size', 32)
-            # Load max_len from checkpoint for positional encoding (should equal window_size)
-            max_len = checkpoint.get('max_len', self.window_size)
             # Default: no aug overrides from checkpoint unless config provided
             self.aug_kwargs = {}
             # Load causal and padding mode parameters from checkpoint
@@ -355,7 +351,7 @@ class ContrastiveInference:
             temperature=temperature,
             combination_method=combination_method,
             use_contrastive=use_contrastive,
-            max_len=max_len,
+            max_len=window_size,
             # Decoder parameters
             decoder_type=decoder_type,
             decoder_hidden_dims=decoder_hidden_dims,
