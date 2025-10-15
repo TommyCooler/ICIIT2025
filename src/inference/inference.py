@@ -18,8 +18,15 @@ import matplotlib.pyplot as plt
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from model.contrastive_model import ContrastiveModel
-from utils.dataset_loaders_fixed import get_dataset_loader
+# Handle both direct execution and module execution
+try:
+    from ..model.contrastive_model import ContrastiveModel
+    from ..utils.dataset_loaders_fixed import get_dataset_loader
+except ImportError:
+    # Fallback for direct execution - use absolute imports
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.model.contrastive_model import ContrastiveModel
+    from src.utils.dataset_loaders_fixed import get_dataset_loader
 
 
 def adjustment(gt, pred):
@@ -189,7 +196,7 @@ class ContrastiveInference:
             decoder_hybrid_transformer_num_layers = config.get('decoder_hybrid_transformer_num_layers', 2)
             decoder_hybrid_dim_feedforward = config.get('decoder_hybrid_dim_feedforward', 512)
             # Load window_size from config to ensure consistency with training
-            self.window_size = config.get('window_size', 128)
+            self.window_size = config.get('window_size', 16)
             # Load batch_size from config to ensure consistency with training
             self.batch_size = config.get('batch_size', 32)
             # Load max_len from config for positional encoding
@@ -210,7 +217,7 @@ class ContrastiveInference:
                 temperature = config.get('aug_temperature', temperature)
             # Load causal and padding mode parameters
             if 'aug_causal' in config:
-                self.aug_kwargs['causal'] = config.get('aug_causal', True)
+                self.aug_kwargs['causal'] = config.get('aug_causal', False)
             if 'aug_pad_mode' in config:
                 self.aug_kwargs['pad_mode'] = config.get('aug_pad_mode', 'reflect')
             # Load weights from config
@@ -248,6 +255,11 @@ class ContrastiveInference:
             print(f"Using mask_mode: {self.mask_mode}")
             print(f"Using mask_ratio: {self.mask_ratio}")
             print(f"Using seed: {self.seed}")
+            # Print augmentation parameters
+            if 'causal' in self.aug_kwargs:
+                print(f"Using aug_causal: {self.aug_kwargs['causal']}")
+            if 'pad_mode' in self.aug_kwargs:
+                print(f"Using aug_pad_mode: {self.aug_kwargs['pad_mode']}")
         else:
             # Fallback: try to get from checkpoint
             self.input_dim = checkpoint.get('input_dim', 2)
@@ -276,13 +288,18 @@ class ContrastiveInference:
             decoder_hybrid_transformer_num_layers = checkpoint.get('decoder_hybrid_transformer_num_layers', 2)
             decoder_hybrid_dim_feedforward = checkpoint.get('decoder_hybrid_dim_feedforward', 512)
             # Load window_size from checkpoint if available
-            self.window_size = checkpoint.get('window_size', 128)
+            self.window_size = checkpoint.get('window_size', 16)
             # Load batch_size from checkpoint if available
             self.batch_size = checkpoint.get('batch_size', 32)
             # Load max_len from checkpoint for positional encoding
             max_len = checkpoint.get('max_len', 5000)
             # Default: no aug overrides from checkpoint unless config provided
             self.aug_kwargs = {}
+            # Load causal and padding mode parameters from checkpoint
+            if 'aug_causal' in checkpoint:
+                self.aug_kwargs['causal'] = checkpoint.get('aug_causal', False)
+            if 'aug_pad_mode' in checkpoint:
+                self.aug_kwargs['pad_mode'] = checkpoint.get('aug_pad_mode', 'reflect')
             # Load weights from checkpoint if available
             self.contrastive_weight = checkpoint.get('contrastive_weight', 1.0)
             self.reconstruction_weight = checkpoint.get('reconstruction_weight', 1.0)
@@ -318,6 +335,11 @@ class ContrastiveInference:
             print(f"Using mask_mode: {self.mask_mode}")
             print(f"Using mask_ratio: {self.mask_ratio}")
             print(f"Using seed: {self.seed}")
+            # Print augmentation parameters
+            if 'causal' in self.aug_kwargs:
+                print(f"Using aug_causal: {self.aug_kwargs['causal']}")
+            if 'pad_mode' in self.aug_kwargs:
+                print(f"Using aug_pad_mode: {self.aug_kwargs['pad_mode']}")
         
         # Create model
         self.model = ContrastiveModel(
