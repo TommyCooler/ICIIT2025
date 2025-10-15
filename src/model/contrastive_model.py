@@ -3,9 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import Tuple, Dict, Optional, List
-from modules.encoder import Encoder
-from modules.decoder import Decoder
-from modules.augmentation import Augmentation
+
+# Handle both direct execution and module execution
+try:
+    from ..modules.encoder import Encoder
+    from ..modules.decoder import Decoder
+    from ..modules.augmentation import Augmentation
+except ImportError:
+    # Fallback for direct execution - use absolute imports
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.modules.encoder import Encoder
+    from src.modules.decoder import Decoder
+    from src.modules.augmentation import Augmentation
 
 
 class MLPProjection(nn.Module):
@@ -50,6 +61,7 @@ class ContrastiveModel(nn.Module):
                  combination_method: str = 'concat',
                  use_contrastive: bool = True,
                  augmentation_kwargs: Optional[Dict] = None,
+                 max_len: int = 5000,
                  # Decoder parameters
                  decoder_type: str = 'mlp',
                  decoder_hidden_dims: Optional[List[int]] = None,
@@ -80,6 +92,7 @@ class ContrastiveModel(nn.Module):
             temperature: Temperature for InfoNCE loss
             combination_method: 'concat' or 'stack' for encoder combination
             use_contrastive: Whether to use contrastive learning branch
+            max_len: Maximum sequence length for positional encoding
             # Decoder parameters
             decoder_type: Type of decoder ('mlp', 'tcn', 'transformer', 'hybrid')
             decoder_hidden_dims: Hidden dimensions for MLP decoder
@@ -116,7 +129,8 @@ class ContrastiveModel(nn.Module):
             tcn_kernel_size=tcn_kernel_size,
             tcn_num_layers=tcn_num_layers,
             dropout=dropout,
-            combination_method=combination_method
+            combination_method=combination_method,
+            max_len=max_len
         )
         
         # MLP for contrastive learning projection
@@ -164,12 +178,18 @@ class ContrastiveModel(nn.Module):
         if 'num_layers' not in aug_kwargs:
             # Default augmentation transformer num layers = 1 unless overridden
             aug_kwargs['num_layers'] = 1
+        # Default causal and padding mode if not provided
+        if 'causal' not in aug_kwargs:
+            aug_kwargs['causal'] = True  # Default to causal (no future leakage)
+        if 'pad_mode' not in aug_kwargs:
+            aug_kwargs['pad_mode'] = 'reflect'  # Default padding mode
         
         self.augmentation = Augmentation(
             input_dim=input_dim,
             output_dim=input_dim,
             dropout=aug_dropout,
             temperature=aug_temperature,
+            max_len=max_len,
             **aug_kwargs
         )
         
@@ -507,47 +527,3 @@ class ContrastiveDataset(torch.utils.data.Dataset):
         return original_tensor, augmented_tensor
 
 
-# Example usage and testing
-if __name__ == "__main__":
-    # Test parameters
-    batch_size = 16
-    seq_len = 100
-    input_dim = 128
-    d_model = 256
-    projection_dim = 128
-    
-    # Create sample data
-    rng = np.random.default_rng(42)
-    data = rng.standard_normal((input_dim, 1000))  # 1000 time steps
-    
-    # Create model
-    model = ContrastiveModel(
-        input_dim=input_dim,
-        d_model=d_model,
-        projection_dim=projection_dim
-    )
-    
-    # Create dataset
-    dataset = ContrastiveDataset(data, window_size=seq_len, stride=seq_len)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    
-    # Test forward pass
-    for original_batch, augmented_batch in dataloader:
-        print(f"Original batch shape: {original_batch.shape}")
-        print(f"Augmented batch shape: {augmented_batch.shape}")
-        
-        # Forward pass
-        outputs = model(original_batch, augmented_batch)
-        print(f"Original encoded shape: {outputs['original_encoded'].shape}")
-        print(f"Augmented encoded shape: {outputs['augmented_encoded'].shape}")
-        print(f"Original projection shape: {outputs['original_projection'].shape}")
-        print(f"Augmented projection shape: {outputs['augmented_projection'].shape}")
-        print(f"Reconstructed shape: {outputs['reconstructed'].shape}")
-        
-        # Compute losses
-        losses = model.compute_total_loss(original_batch, augmented_batch)
-        print(f"Total loss: {losses['total_loss'].item():.4f}")
-        print(f"Contrastive loss: {losses['contrastive_loss'].item():.4f}")
-        print(f"Reconstruction loss: {losses['reconstruction_loss'].item():.4f}")
-        
-        break

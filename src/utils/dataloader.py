@@ -1,14 +1,19 @@
-import os
-import pickle
-import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import torch
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Tuple, Optional
 from scipy.stats import zscore
 
 # Import fixed dataset loaders
-from .dataset_loaders_fixed import get_dataset_loader
+# Handle both direct execution and module execution
+try:
+    from .dataset_loaders_fixed import get_dataset_loader
+except ImportError:
+    # Fallback for direct execution - use absolute imports
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.utils.dataset_loaders_fixed import get_dataset_loader
 
 
 # DataAugmentation class removed - use augmentation from src/modules/augmentation.py instead
@@ -212,28 +217,3 @@ def create_dataloaders(dataset_type: str, data_path: str,
     return dataloaders
 
 
-# Example usage
-if __name__ == "__main__":
-    # Test with ECG dataset
-    dataloaders = create_dataloaders(
-        dataset_type='ecg',
-        data_path='datasets/ecg',
-        dataset_name='chfdbchf15',
-        window_size=256,
-        batch_size=32,
-        normalize=True
-    )
-    
-    print(f"Train batches: {len(dataloaders['train'])}")
-    print(f"Test batches: {len(dataloaders['test'])}")
-    
-    # Test a batch
-    for batch_data, batch_labels in dataloaders['train']:
-        print(f"Train batch shape: {batch_data.shape}")
-        print(f"Train batch labels: {batch_labels}")
-        break
-    
-    for batch_data, batch_labels in dataloaders['test']:
-        print(f"Test batch shape: {batch_data.shape}")
-        print(f"Test batch labels shape: {batch_labels.shape}")
-        break

@@ -6,13 +6,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
-import json
+
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import wandb
 
-from .contrastive_model import ContrastiveModel, ContrastiveDataset
-from utils.dataloader import create_dataloaders
+# Handle both direct execution and module execution
+try:
+    from .contrastive_model import ContrastiveModel, ContrastiveDataset
+    from ..utils.dataloader import create_dataloaders
+except ImportError:
+    # Fallback for direct execution - use absolute imports
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.model.contrastive_model import ContrastiveModel, ContrastiveDataset
+    from src.utils.dataloader import create_dataloaders
 
 
 class ContrastiveTrainer:
@@ -35,7 +43,10 @@ class ContrastiveTrainer:
                  use_lr_scheduler: bool = False,
                  scheduler_type: str = 'cosine',
                  scheduler_params: Optional[Dict] = None,
-                 window_size: int = None):
+                 window_size: int = None,
+                 max_len: int = 5000,
+                 aug_causal: bool = True,
+                 aug_pad_mode: str = 'reflect'):
         """
         Args:
             model: Contrastive learning model
@@ -54,6 +65,8 @@ class ContrastiveTrainer:
             use_lr_scheduler: Whether to use learning rate scheduler
             scheduler_type: Type of scheduler ('cosine', 'step', 'exponential', 'plateau')
             scheduler_params: Additional parameters for scheduler
+            window_size: Window size for training
+            max_len: Maximum sequence length for positional encoding
         """
         # Force CUDA usage for training
         self.model = model.to('cuda')
@@ -62,6 +75,9 @@ class ContrastiveTrainer:
         self.save_dir = save_dir
         self.use_wandb = use_wandb
         self.window_size = window_size
+        self.max_len = max_len
+        self.aug_causal = aug_causal
+        self.aug_pad_mode = aug_pad_mode
         
         # Loss weights
         self.contrastive_weight = contrastive_weight
@@ -356,7 +372,12 @@ class ContrastiveTrainer:
             'reconstruction_weight': self.reconstruction_weight,
             'best_loss': self.best_loss,
             # Add window_size for inference compatibility
-            'window_size': getattr(self, 'window_size', None)
+            'window_size': getattr(self, 'window_size', None),
+            # Add max_len for positional encoding compatibility
+            'max_len': getattr(self, 'max_len', 5000),
+            # Add augmentation parameters
+            'aug_causal': getattr(self, 'aug_causal', True),
+            'aug_pad_mode': getattr(self, 'aug_pad_mode', 'reflect')
         }
         
         # Save checkpoint with fixed filename (overwrite previous)
@@ -492,47 +513,3 @@ def create_contrastive_dataloaders(dataset_type: str,
     return train_dataloader, None
 
 
-# Example usage
-if __name__ == "__main__":
-    # Parameters
-    dataset_type = 'ecg'
-    data_path = 'datasets/ecg'
-    window_size = 128
-    batch_size = 32
-    num_epochs = 50
-    
-    # Create dataloaders
-    train_dataloader, _ = create_contrastive_dataloaders(
-        dataset_type=dataset_type,
-        data_path=data_path,
-        window_size=window_size,
-        batch_size=batch_size
-    )
-    
-    # Create model
-    model = ContrastiveModel(
-        input_dim=2,  # ECG has 2 channels
-        d_model=256,
-        projection_dim=128,
-        nhead=8,
-        transformer_layers=6,
-        dropout=0.1
-    )
-    
-    # Create trainer
-    trainer = ContrastiveTrainer(
-        model=model,
-        train_dataloader=train_dataloader,
-        learning_rate=1e-4,
-        contrastive_weight=1.0,
-        reconstruction_weight=1.0,
-        save_dir='checkpoints/contrastive'
-    )
-    
-    # Train model
-    history = trainer.train(num_epochs=num_epochs)
-    
-    # Plot training history
-    trainer.plot_training_history('training_history.png')
-    
-    print("Training completed!")

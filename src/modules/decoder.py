@@ -90,7 +90,7 @@ class TCNDecoderBlock(nn.Module):
             for layer in tcn_block:
                 if isinstance(layer, nn.Conv1d):
                     x = layer(x)
-                    # Crop to maintain sequence length
+                    # Crop to maintain sequence length (restored for compatibility)
                     dilation = 2 ** i
                     padding = (self.kernel_size - 1) * dilation
                     if padding > 0:
@@ -381,103 +381,5 @@ class Decoder(nn.Module):
         output = self.decoder_block(x)
         return output
     
-    def get_individual_outputs(self, x):
-        """
-        Get outputs for analysis (for compatibility)
-        
-        Args:
-            x: Input tensor of shape (batch_size, seq_len, d_model)
-        Returns:
-            Dictionary with decoder output
-        """
-        with torch.no_grad():
-            decoder_output = self.decoder_block(x)
-            
-            return {
-                self.decoder_type: decoder_output
-            }
-    
-    def get_decoder_info(self):
-        """Get information about the decoder architecture"""
-        total_params = sum(p.numel() for p in self.parameters())
-        return {
-            'decoder_type': self.decoder_type,
-            'd_model': self.d_model,
-            'output_dim': self.output_dim,
-            'total_parameters': total_params
-        }
 
 
-# Example usage and testing
-if __name__ == "__main__":
-    # Test parameters
-    batch_size = 32
-    seq_len = 100
-    d_model = 256
-    output_dim = 128
-    
-    print("=" * 80)
-    print("TESTING ALL DECODER TYPES")
-    print("=" * 80)
-    
-    decoder_types = ['mlp', 'tcn', 'transformer', 'hybrid']
-    
-    for decoder_type in decoder_types:
-        print(f"\n{'='*60}")
-        print(f"Testing {decoder_type.upper()} Decoder:")
-        print(f"{'='*60}")
-        
-        try:
-            decoder = Decoder(
-                d_model=d_model,
-                output_dim=output_dim,
-                decoder_type=decoder_type,
-                hidden_dims=[d_model, d_model//2, d_model//4],
-                dropout=0.1,
-                # TCN parameters
-                tcn_kernel_size=3,
-                tcn_num_layers=2,
-                # Transformer parameters
-                transformer_nhead=8,
-                transformer_num_layers=2,
-                dim_feedforward=512,
-                # Hybrid parameters
-                hybrid_tcn_kernel_size=3,
-                hybrid_tcn_num_layers=1,
-                hybrid_transformer_nhead=4,
-                hybrid_transformer_num_layers=1,
-                hybrid_dim_feedforward=256
-            )
-            
-            x = torch.randn(batch_size, seq_len, d_model)  # Encoded augmented data
-            output = decoder(x)
-            
-            print(f"✅ Input shape: {x.shape}")
-            print(f"✅ Output shape: {output.shape}")
-            print(f"✅ Shape match: {x.shape[:-1] == output.shape[:-1] and output.shape[-1] == output_dim}")
-            
-            # Test individual outputs
-            individual_outputs = decoder.get_individual_outputs(x)
-            for name, output_tensor in individual_outputs.items():
-                print(f"✅ Individual output '{name}': {output_tensor.shape}")
-            
-            # Get decoder info
-            decoder_info = decoder.get_decoder_info()
-            print(f"✅ Decoder type: {decoder_info['decoder_type']}")
-            print(f"✅ Total parameters: {decoder_info['total_parameters']:,}")
-            
-            # Verify output dimensions
-            expected_shape = (batch_size, seq_len, output_dim)
-            if output.shape == expected_shape:
-                print(f"✅ Shape verification passed: {output.shape} == {expected_shape}")
-            else:
-                print(f"❌ Shape verification failed: {output.shape} != {expected_shape}")
-                
-        except Exception as e:
-            print(f"❌ Error testing {decoder_type} decoder: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    print(f"\n{'='*80}")
-    print("DECODER TESTING COMPLETED")
-    print(f"{'='*80}")

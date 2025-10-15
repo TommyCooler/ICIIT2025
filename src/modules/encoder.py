@@ -2,12 +2,54 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
+import math
+
+
+class LearnablePositionalEncoding(nn.Module):
+    """Learnable positional encoding for Transformer"""
+    def __init__(self, d_model: int, max_len: int = 5000):
+        """
+        Args:
+            d_model: Model dimension
+            max_len: Maximum sequence length
+        """
+        super(LearnablePositionalEncoding, self).__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+        
+        # Learnable positional embeddings
+        self.pos_embedding = nn.Parameter(torch.zeros(max_len, d_model))
+        
+        # Initialize with small random values
+        nn.init.normal_(self.pos_embedding, mean=0.0, std=0.1)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_len, d_model)
+        Returns:
+            Output tensor with positional encoding added
+        """
+        batch_size, seq_len, d_model = x.shape
+        
+        # Ensure we don't exceed max_len
+        if seq_len > self.max_len:
+            raise ValueError(f"Sequence length {seq_len} exceeds maximum length {self.max_len}")
+        
+        # Get positional embeddings for current sequence length
+        pos_emb = self.pos_embedding[:seq_len, :]  # (seq_len, d_model)
+        
+        # Add positional encoding to input
+        return x + pos_emb.unsqueeze(0)  # (batch_size, seq_len, d_model)
 
 
 class TransformerEncoderBlock(nn.Module):
-    """Transformer Encoder Block"""
-    def __init__(self, d_model, nhead, dim_feedforward, num_layers, dropout=0.1):
+    """Transformer Encoder Block with learnable positional encoding"""
+    def __init__(self, d_model, nhead, dim_feedforward, num_layers, dropout=0.1, max_len=5000):
         super(TransformerEncoderBlock, self).__init__()
+        
+        # Learnable positional encoding
+        self.pos_encoding = LearnablePositionalEncoding(d_model, max_len)
         
         # Transformer encoder layers
         encoder_layer = TransformerEncoderLayer(
@@ -26,6 +68,10 @@ class TransformerEncoderBlock(nn.Module):
         Returns:
             Output tensor of shape (batch_size, seq_len, d_model)
         """
+        # Add positional encoding
+        x = self.pos_encoding(x)
+        
+        # Apply transformer encoder
         return self.transformer_encoder(x)
 
 
@@ -76,7 +122,7 @@ class TCNBlock(nn.Module):
             padding = (self.kernel_size - 1) * dilation
             
             x = conv(x)
-            # Crop to maintain sequence length
+            # Crop to maintain sequence length (crop from end to keep causal behavior)
             if padding > 0:
                 x = x[:, :, :-padding]
             x = gelu(x)
@@ -98,7 +144,8 @@ class Encoder(nn.Module):
                  tcn_kernel_size=2,
                  tcn_num_layers=4,
                  dropout=0.1,
-                 combination_method='concat'):
+                 combination_method='concat',
+                 max_len=5000):
         """
         Args:
             input_dim: Input dimension
@@ -111,6 +158,7 @@ class Encoder(nn.Module):
             tcn_num_layers: Number of TCN layers
             dropout: Dropout rate
             combination_method: 'concat' or 'stack' for combining outputs
+            max_len: Maximum sequence length for positional encoding
         """
         super(Encoder, self).__init__()
         
@@ -123,7 +171,8 @@ class Encoder(nn.Module):
             nhead=nhead,
             dim_feedforward=dim_feedforward,
             num_layers=transformer_layers,
-            dropout=dropout
+            dropout=dropout,
+            max_len=max_len
         )
         
         # TCN Block
@@ -183,63 +232,5 @@ class Encoder(nn.Module):
             output = self.stack_projection(combined)
             return output
     
-    def get_individual_outputs(self, x):
-        """
-        Get outputs from individual blocks for analysis
-        
-        Args:
-            x: Input tensor of shape (batch_size, seq_len, input_dim)
-        Returns:
-            Dictionary with transformer and TCN outputs
-        """
-        with torch.no_grad():
-            x_projected = self.input_projection(x)
-            transformer_output = self.transformer_block(x_projected)
-            tcn_output = self.tcn_block(x)
-            
-            return {
-                'transformer': transformer_output,
-                'tcn': tcn_output
-            }
 
 
-# Example usage and testing
-if __name__ == "__main__":
-    # Test parameters
-    batch_size = 32
-    seq_len = 100
-    input_dim = 128
-    d_model = 256
-    
-    print("Testing Encoder with concat method:")
-    encoder_concat = Encoder(
-        input_dim=input_dim,
-        d_model=d_model,
-        nhead=8,
-        transformer_layers=6,
-        tcn_output_dim=128,
-        combination_method='concat'
-    )
-    
-    x = torch.randn(batch_size, seq_len, input_dim)
-    output_concat = encoder_concat(x)
-    print(f"Input shape: {x.shape}")
-    print(f"Output shape (concat): {output_concat.shape}")
-    
-    print("\nTesting Encoder with stack method:")
-    encoder_stack = Encoder(
-        input_dim=input_dim,
-        d_model=d_model,
-        nhead=8,
-        transformer_layers=6,
-        tcn_output_dim=d_model,  # Same as d_model for stack
-        combination_method='stack'
-    )
-    
-    output_stack = encoder_stack(x)
-    print(f"Output shape (stack): {output_stack.shape}")
-    
-    print("\nIndividual outputs:")
-    individual_outputs = encoder_concat.get_individual_outputs(x)
-    for name, output_tensor in individual_outputs.items():
-        print(f"{name}: {output_tensor.shape}")

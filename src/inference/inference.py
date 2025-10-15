@@ -192,6 +192,8 @@ class ContrastiveInference:
             self.window_size = config.get('window_size', 128)
             # Load batch_size from config to ensure consistency with training
             self.batch_size = config.get('batch_size', 32)
+            # Load max_len from config for positional encoding
+            max_len = config.get('max_len', 5000)
             # Augmentation-specific hyperparameters (optional)
             self.aug_kwargs = {}
             if 'aug_nhead' in config and config['aug_nhead'] is not None:
@@ -206,6 +208,11 @@ class ContrastiveInference:
                 dropout = config.get('aug_dropout', dropout)
             if 'aug_temperature' in config and config['aug_temperature'] is not None:
                 temperature = config.get('aug_temperature', temperature)
+            # Load causal and padding mode parameters
+            if 'aug_causal' in config:
+                self.aug_kwargs['causal'] = config.get('aug_causal', True)
+            if 'aug_pad_mode' in config:
+                self.aug_kwargs['pad_mode'] = config.get('aug_pad_mode', 'reflect')
             # Load weights from config
             self.contrastive_weight = config.get('contrastive_weight', 1.0)
             self.reconstruction_weight = config.get('reconstruction_weight', 1.0)
@@ -272,6 +279,8 @@ class ContrastiveInference:
             self.window_size = checkpoint.get('window_size', 128)
             # Load batch_size from checkpoint if available
             self.batch_size = checkpoint.get('batch_size', 32)
+            # Load max_len from checkpoint for positional encoding
+            max_len = checkpoint.get('max_len', 5000)
             # Default: no aug overrides from checkpoint unless config provided
             self.aug_kwargs = {}
             # Load weights from checkpoint if available
@@ -324,6 +333,7 @@ class ContrastiveInference:
             temperature=temperature,
             combination_method=combination_method,
             use_contrastive=use_contrastive,
+            max_len=max_len,
             # Decoder parameters
             decoder_type=decoder_type,
             decoder_hidden_dims=decoder_hidden_dims,
@@ -395,109 +405,6 @@ class ContrastiveInference:
             print(f"Error loading data with loader for {dataset_type}: {e}")
             return None, None
     
-    def load_pickle_data(self, file_path: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Load data from pickle file (ECG, PD, Gesture datasets) - DEPRECATED, use load_data_with_loader instead"""
-        try:
-            with open(file_path, 'rb') as f:
-                data = pickle.load(f)
-            
-            if isinstance(data, dict):
-                test_data = data.get('test_data', data.get('data'))
-                labels = data.get('test_labels', data.get('labels'))
-            elif isinstance(data, tuple) and len(data) == 2:
-                test_data, labels = data
-            else:
-                test_data = data
-                labels = None
-            
-            # Ensure test_data is numpy array
-            if not isinstance(test_data, np.ndarray):
-                test_data = np.array(test_data)
-            
-            # Ensure labels is numpy array if not None
-            if labels is not None and not isinstance(labels, np.ndarray):
-                labels = np.array(labels)
-            
-            return test_data, labels
-        except Exception as e:
-            print(f"Error loading pickle data from {file_path}: {e}")
-            return None, None
-    
-    def load_numpy_data(self, file_path: str, dataset_type: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Load data from numpy file (NAB, SMAP_MSL, SMD, UCR datasets)"""
-        try:
-            # Load test data
-            test_data = np.load(file_path)
-            
-            # Reshape data based on dataset type
-            if dataset_type == 'ucr':
-                # UCR data format: (time,) -> reshape to (1, time) for single feature
-                if test_data.ndim == 1:
-                    test_data = test_data.reshape(1, -1)  # Shape: (1, time)
-                elif test_data.ndim == 2:
-                    test_data = test_data.T  # Shape: (features, time)
-                else:
-                    raise ValueError(f"Unexpected UCR data shape: {test_data.shape}")
-            
-            # Try to load corresponding labels file
-            labels_file = file_path.replace('_test.npy', '_labels.npy')
-            labels = None
-            
-            if os.path.exists(labels_file):
-                labels = np.load(labels_file)
-            else:
-                # For some datasets, labels might be in a different location
-                if dataset_type == 'nab':
-                    # NAB datasets might have labels in a different format
-                    labels_file = file_path.replace('_test.npy', '_labels.npy')
-                    if os.path.exists(labels_file):
-                        labels = np.load(labels_file)
-                elif dataset_type in ['smap_msl', 'smd']:
-                    # These datasets might have labels in a different location
-                    labels_file = file_path.replace('_test.npy', '_labels.npy')
-                    if os.path.exists(labels_file):
-                        labels = np.load(labels_file)
-                elif dataset_type == 'ucr':
-                    # UCR datasets might have labels in a different location
-                    labels_file = file_path.replace('_test.npy', '_labels.npy')
-                    if os.path.exists(labels_file):
-                        labels = np.load(labels_file)
-            
-            return test_data, labels
-        except Exception as e:
-            print(f"Error loading numpy data from {file_path}: {e}")
-            return None, None
-    
-    def load_psm_data(self, file_path: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Load PSM dataset from CSV file"""
-        try:
-            import pandas as pd
-            
-            # Load test data
-            test_df = pd.read_csv(file_path)
-            
-            # Extract feature columns
-            feature_cols = [col for col in test_df.columns if col.startswith('feature_')]
-            test_data = test_df[feature_cols].values
-            
-            # Try to load labels
-            labels_file = file_path.replace('test.csv', 'test_label.csv')
-            labels = None
-            
-            if os.path.exists(labels_file):
-                labels_df = pd.read_csv(labels_file)
-                if 'anomaly' in labels_df.columns:
-                    labels = labels_df['anomaly'].values
-                elif 'label' in labels_df.columns:
-                    labels = labels_df['label'].values
-                else:
-                    # Use the first column as labels
-                    labels = labels_df.iloc[:, 0].values
-            
-            return test_data, labels
-        except Exception as e:
-            print(f"Error loading PSM data from {file_path}: {e}")
-            return None, None
     
     def run_inference(self, data: np.ndarray, window_size: int, stride: int = 1, batch_size: int = 32) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -744,20 +651,6 @@ class ContrastiveInference:
         
         return timestep_scores, reconstruction
     
-    def create_simple_reconstruction(self, data: np.ndarray, window_size: int, stride: int = 1) -> np.ndarray:
-        """
-        Create a simple reconstruction by copying original data
-        (This is a placeholder - can be enhanced later if needed)
-        
-        Args:
-            data: Original data
-            window_size: Window size used
-            stride: Stride used
-            
-        Returns:
-            Simple reconstruction (copy of original data)
-        """
-        return data.copy()
     
     
 
@@ -1052,53 +945,6 @@ class ContrastiveInference:
             print(f"     - Training params: learning rate, epochs, batch size, etc.")
             print(f"     - Model params: dimensions, layers, weights, etc.")
     
-    def create_model_comparison_sheet(self, excel_path: str):
-        """
-        Create a comparison sheet that summarizes all models in the Excel file
-        """
-        try:
-            import pandas as pd
-            
-            # Read all sheets to find model summaries
-            excel_file = pd.ExcelFile(excel_path)
-            model_summaries = []
-            
-            for sheet_name in excel_file.sheet_names:
-                if sheet_name.endswith('_Summary'):
-                    try:
-                        df = pd.read_excel(excel_path, sheet_name=sheet_name)
-                        # Extract model info
-                        model_info = {}
-                        for _, row in df.iterrows():
-                            metric = row['Metric']
-                            value = row['Value']
-                            if metric == 'Model_Timestamp':
-                                model_info['Model_Timestamp'] = value
-                            elif metric.startswith('Best_'):
-                                model_info[metric] = value
-                        
-                        if model_info:
-                            model_summaries.append(model_info)
-                    except Exception as e:
-                        print(f"Warning: Could not read sheet {sheet_name}: {e}")
-            
-            if len(model_summaries) > 1:
-                # Create comparison DataFrame
-                comparison_df = pd.DataFrame(model_summaries)
-                comparison_df = comparison_df.sort_values('Best_F1_Score', ascending=False)
-                
-                # Save comparison sheet
-                with pd.ExcelWriter(excel_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                    comparison_df.to_excel(writer, sheet_name='Model_Comparison', index=False)
-                
-                print(f"Created Model_Comparison sheet with {len(model_summaries)} models")
-                print("Models ranked by F1-Score:")
-                for i, (_, row) in enumerate(comparison_df.iterrows(), 1):
-                    print(f"  {i}. {row['Model_Timestamp']}: F1={row['Best_F1_Score']:.4f}, "
-                          f"Precision={row['Best_Precision']:.4f}, Recall={row['Best_Recall']:.4f}")
-            
-        except Exception as e:
-            print(f"Warning: Could not create model comparison sheet: {e}")
     
     
     def evaluate_performance(self, labels: np.ndarray, timestep_anomalies: np.ndarray, 

@@ -14,9 +14,15 @@ import sys
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from model.contrastive_model import ContrastiveModel
-from model.train_contrastive import ContrastiveTrainer, create_contrastive_dataloaders
-from utils.dataloader import create_dataloaders
+# Handle both direct execution and module execution
+try:
+    from .contrastive_model import ContrastiveModel
+    from .train_contrastive import ContrastiveTrainer, create_contrastive_dataloaders
+except ImportError:
+    # Fallback for direct execution - use absolute imports
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.model.contrastive_model import ContrastiveModel
+    from src.model.train_contrastive import ContrastiveTrainer, create_contrastive_dataloaders
 import setproctitle
 
 setproctitle.setproctitle("TamTC's train")
@@ -59,6 +65,8 @@ def parse_args():
     parser.add_argument('--combination_method', type=str, default='stack',
                        choices=['concat', 'stack'],
                        help='Method for combining TCN and Transformer outputs')
+    parser.add_argument('--max_len', type=int, default=5000,
+                       help='Maximum sequence length for positional encoding')
     
     # Decoder arguments
     parser.add_argument('--decoder_type', type=str, default='custom_linear',
@@ -103,13 +111,20 @@ def parse_args():
                        help='Augmentation dropout (override; default: model dropout)')
     parser.add_argument('--aug_temperature', type=float, default=None,
                        help='Augmentation temperature (override; default: model temperature)')
+    # Causal and padding mode arguments
+    parser.add_argument('--aug_causal', action='store_true', default=False,
+                       help='Use causal (no future leakage) for augmentation modules')
+    parser.add_argument('--aug_non_causal', dest='aug_causal', action='store_false',
+                       help='Use non-causal (bidirectional) for augmentation modules')
+    parser.add_argument('--aug_pad_mode', type=str, default='reflect', choices=['reflect', 'replicate', 'zeros'],
+                       help='Padding mode for augmentation Conv1d layers')
     parser.add_argument('--use_contrastive', action='store_true', default=False,
                        help='Use contrastive learning branch')
     parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
                        help='Disable contrastive learning branch')
     
     # Training arguments
-    parser.add_argument('--window_size', type=int, default=256,
+    parser.add_argument('--window_size', type=int, default=16,
                        help='Size of windows')
     parser.add_argument('--batch_size', type=int, default=64,
                        help='Batch size')
@@ -361,6 +376,7 @@ def main():
             temperature=args.temperature,
             combination_method=args.combination_method,
             use_contrastive=args.use_contrastive,
+            max_len=args.window_size,
             # Decoder parameters
             decoder_type=args.decoder_type,
             decoder_hidden_dims=decoder_hidden_dims,
@@ -382,6 +398,9 @@ def main():
                 'num_layers': args.aug_num_layers,
                 **({ 'dropout': args.aug_dropout } if args.aug_dropout is not None else {}),
                 **({ 'temperature': args.aug_temperature } if args.aug_temperature is not None else {}),
+                # Causal and padding mode parameters
+                'causal': args.aug_causal,
+                'pad_mode': args.aug_pad_mode,
             }
         )
         
@@ -404,6 +423,9 @@ def main():
             project_name=args.project_name,
             experiment_name=args.experiment_name,
             window_size=args.window_size,
+            max_len=args.window_size,
+            aug_causal=args.aug_causal,
+            aug_pad_mode=args.aug_pad_mode,
             use_lr_scheduler=args.use_lr_scheduler,
             scheduler_type=args.scheduler_type,
             scheduler_params=(json.loads(args.scheduler_params) if isinstance(args.scheduler_params, str) and args.scheduler_params else {})
