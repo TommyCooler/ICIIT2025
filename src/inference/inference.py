@@ -156,7 +156,6 @@ class ContrastiveInference:
         checkpoint = torch.load(model_path, map_location=self.device)
         
         # Initialize default values
-        max_len = 16  # Default fallback value
         
         # Load all parameters from checkpoint only
         self.input_dim = checkpoint.get('input_dim', 2)
@@ -179,8 +178,6 @@ class ContrastiveInference:
         self.window_size = checkpoint.get('window_size', 16)
         # Load batch_size from checkpoint if available
         self.batch_size = checkpoint.get('batch_size', 32)
-        # Load max_len from checkpoint for positional encoding (should equal window_size)
-        max_len = checkpoint.get('max_len', self.window_size)
         
         # Load augmentation parameters from checkpoint
         self.aug_kwargs = {}
@@ -238,7 +235,6 @@ class ContrastiveInference:
             temperature=temperature,
             combination_method=combination_method,
             use_contrastive=use_contrastive,
-            max_len=max_len,
             augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
         )
         
@@ -257,13 +253,16 @@ class ContrastiveInference:
             _ = self.model(dummy_input, dummy_input)
         
         # Load state dict - now all parameters should exist
-        state_dict = checkpoint['model_state_dict']
-        missing, unexpected = self.model.load_state_dict(state_dict, strict=True)
-        if missing:
-            print(f"Warning: Missing keys when loading state_dict (will be initialized randomly): {missing}")
-        if unexpected:
-            print(f"Warning: Unexpected keys when loading state_dict: {unexpected}")
-            print("These keys will be ignored.")
+        if 'model_state_dict' in checkpoint and checkpoint['model_state_dict']:
+            state_dict = checkpoint['model_state_dict']
+            missing, unexpected = self.model.load_state_dict(state_dict, strict=True)
+            if missing:
+                print(f"Warning: Missing keys when loading state_dict (will be initialized randomly): {missing}")
+            if unexpected:
+                print(f"Warning: Unexpected keys when loading state_dict: {unexpected}")
+                print("These keys will be ignored.")
+        else:
+            print("Warning: No model_state_dict found in checkpoint. Model will use random initialization.")
         self.model.to(self.device)
         self.model.eval()
         
