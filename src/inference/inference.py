@@ -5,28 +5,20 @@ Tests the model on test data with sliding window and visualizes results
 """
 
 import torch
-import torch.nn as nn
 import numpy as np
 import os
 import sys
 import argparse
 from typing import Dict, Tuple
-import pickle
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Add src to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# Handle both direct execution and module execution
-try:
-    from ..model.contrastive_model import ContrastiveModel
-    from ..utils.dataset_loaders_fixed import get_dataset_loader
-except ImportError:
-    # Fallback for direct execution - use absolute imports
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    from src.model.contrastive_model import ContrastiveModel
-    from src.utils.dataset_loaders_fixed import get_dataset_loader
+# Import custom modules
+from src.model.contrastive_model import ContrastiveModel
+from src.utils.dataloader import get_dataset_loader
 
 
 def adjustment(gt, pred):
@@ -166,183 +158,71 @@ class ContrastiveInference:
         # Initialize default values
         max_len = 16  # Default fallback value
         
-        # Load config from config.json in the same directory
-        config_path = os.path.join(os.path.dirname(model_path), 'config.json')
-        if os.path.exists(config_path):
-            import json
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-            # Get input_dim from config
-            self.input_dim = config.get('input_dim', 2)
-            d_model = config.get('d_model', 256)
-            projection_dim = config.get('projection_dim', 128)
-            nhead = config.get('nhead', 8)
-            transformer_layers = config.get('transformer_layers', 6)
-            tcn_output_dim = config.get('tcn_output_dim', None)
-            tcn_kernel_size = config.get('tcn_kernel_size', 3)
-            tcn_num_layers = config.get('tcn_num_layers', 3)
-            dropout = config.get('dropout', 0.1)
-            temperature = config.get('temperature', 1.0)
-            combination_method = config.get('combination_method', 'concat')
-            use_contrastive = config.get('use_contrastive', True)
-            # Decoder parameters
-            decoder_type = config.get('decoder_type', 'mlp')
-            decoder_hidden_dims = config.get('decoder_hidden_dims', None)
-            decoder_tcn_kernel_size = config.get('decoder_tcn_kernel_size', 3)
-            decoder_tcn_num_layers = config.get('decoder_tcn_num_layers', 3)
-            decoder_transformer_nhead = config.get('decoder_transformer_nhead', 8)
-            decoder_transformer_num_layers = config.get('decoder_transformer_num_layers', 3)
-            decoder_dim_feedforward = config.get('decoder_dim_feedforward', 512)
-            decoder_hybrid_tcn_kernel_size = config.get('decoder_hybrid_tcn_kernel_size', 3)
-            decoder_hybrid_tcn_num_layers = config.get('decoder_hybrid_tcn_num_layers', 2)
-            decoder_hybrid_transformer_nhead = config.get('decoder_hybrid_transformer_nhead', 8)
-            decoder_hybrid_transformer_num_layers = config.get('decoder_hybrid_transformer_num_layers', 2)
-            decoder_hybrid_dim_feedforward = config.get('decoder_hybrid_dim_feedforward', 512)
-            # Load window_size from config to ensure consistency with training
-            self.window_size = config.get('window_size', 16)
-            # Load batch_size from config to ensure consistency with training
-            self.batch_size = config.get('batch_size', 32)
-            # Load max_len from config for positional encoding (should equal window_size)
-            max_len = config.get('max_len', self.window_size)
-            # Augmentation-specific hyperparameters (optional)
-            self.aug_kwargs = {}
-            if 'aug_nhead' in config and config['aug_nhead'] is not None:
-                self.aug_kwargs['nhead'] = config.get('aug_nhead')
-            if 'aug_num_layers' in config and config['aug_num_layers'] is not None:
-                self.aug_kwargs['num_layers'] = config.get('aug_num_layers')
-            if 'aug_tcn_kernel_size' in config and config['aug_tcn_kernel_size'] is not None:
-                self.aug_kwargs['tcn_kernel_size'] = config.get('aug_tcn_kernel_size')
-            if 'aug_tcn_num_layers' in config and config['aug_tcn_num_layers'] is not None:
-                self.aug_kwargs['tcn_num_layers'] = config.get('aug_tcn_num_layers')
-            if 'aug_dropout' in config and config['aug_dropout'] is not None:
-                dropout = config.get('aug_dropout', dropout)
-            if 'aug_temperature' in config and config['aug_temperature'] is not None:
-                temperature = config.get('aug_temperature', temperature)
-            # Load causal and padding mode parameters
-            if 'aug_causal' in config:
-                self.aug_kwargs['causal'] = config.get('aug_causal', False)
-            if 'aug_pad_mode' in config:
-                self.aug_kwargs['pad_mode'] = config.get('aug_pad_mode', 'reflect')
-            # Load weights from config
-            self.contrastive_weight = config.get('contrastive_weight', 1.0)
-            self.reconstruction_weight = config.get('reconstruction_weight', 1.0)
-            # Load other training parameters
-            self.learning_rate = config.get('learning_rate', 1e-4)
-            self.weight_decay = config.get('weight_decay', 1e-5)
-            self.epsilon = config.get('epsilon', 1e-5)
-            self.mask_mode = config.get('mask_mode', 'time')
-            self.mask_ratio = config.get('mask_ratio', 0.2)
-            self.mask_seed = config.get('mask_seed', None)
-            self.device_name = config.get('device', 'cuda')
-            self.seed = config.get('seed', 42)
-            # Load additional training parameters
-            self.num_epochs = config.get('num_epochs', 100)
-            self.use_lr_scheduler = config.get('use_lr_scheduler', True)
-            self.scheduler_type = config.get('scheduler_type', 'cosine')
-            self.scheduler_params = config.get('scheduler_params', {})
-            self.use_wandb = config.get('use_wandb', True)
-            self.project_name = config.get('project_name', 'contrastive-learning')
-            self.experiment_name = config.get('experiment_name', None)
-            # Load dataset-specific parameters
-            self.dataset_name = config.get('dataset_name', None)
-            self.data_path = config.get('data_path', None)
-            print(f"Config loaded from {config_path}")
-            print(f"Using input_dim: {self.input_dim}")
-            print(f"Using window_size: {self.window_size}")
-            print(f"Using batch_size: {self.batch_size}")
-            print(f"Using decoder_type: {decoder_type}")
-            print(f"Using contrastive: {use_contrastive}")
-            print(f"Using learning_rate: {self.learning_rate}")
-            print(f"Using contrastive_weight: {self.contrastive_weight}")
-            print(f"Using reconstruction_weight: {self.reconstruction_weight}")
-            print(f"Using mask_mode: {self.mask_mode}")
-            print(f"Using mask_ratio: {self.mask_ratio}")
-            print(f"Using seed: {self.seed}")
-            # Print augmentation parameters
-            if 'causal' in self.aug_kwargs:
-                print(f"Using aug_causal: {self.aug_kwargs['causal']}")
-            if 'pad_mode' in self.aug_kwargs:
-                print(f"Using aug_pad_mode: {self.aug_kwargs['pad_mode']}")
-        else:
-            # Fallback: try to get from checkpoint
-            self.input_dim = checkpoint.get('input_dim', 2)
-            d_model = checkpoint.get('d_model', 256)
-            projection_dim = checkpoint.get('projection_dim', 128)
-            nhead = checkpoint.get('nhead', 8)
-            transformer_layers = checkpoint.get('transformer_layers', 6)
-            tcn_output_dim = checkpoint.get('tcn_output_dim', None)
-            tcn_kernel_size = checkpoint.get('tcn_kernel_size', 3)
-            tcn_num_layers = checkpoint.get('tcn_num_layers', 3)
-            dropout = checkpoint.get('dropout', 0.1)
-            temperature = checkpoint.get('temperature', 1.0)
-            combination_method = checkpoint.get('combination_method', 'concat')
-            use_contrastive = checkpoint.get('use_contrastive', True)
-            # Decoder parameters (fallback to defaults if not in checkpoint)
-            decoder_type = checkpoint.get('decoder_type', 'mlp')
-            decoder_hidden_dims = checkpoint.get('decoder_hidden_dims', None)
-            decoder_tcn_kernel_size = checkpoint.get('decoder_tcn_kernel_size', 3)
-            decoder_tcn_num_layers = checkpoint.get('decoder_tcn_num_layers', 3)
-            decoder_transformer_nhead = checkpoint.get('decoder_transformer_nhead', 8)
-            decoder_transformer_num_layers = checkpoint.get('decoder_transformer_num_layers', 3)
-            decoder_dim_feedforward = checkpoint.get('decoder_dim_feedforward', 512)
-            decoder_hybrid_tcn_kernel_size = checkpoint.get('decoder_hybrid_tcn_kernel_size', 3)
-            decoder_hybrid_tcn_num_layers = checkpoint.get('decoder_hybrid_tcn_num_layers', 2)
-            decoder_hybrid_transformer_nhead = checkpoint.get('decoder_hybrid_transformer_nhead', 8)
-            decoder_hybrid_transformer_num_layers = checkpoint.get('decoder_hybrid_transformer_num_layers', 2)
-            decoder_hybrid_dim_feedforward = checkpoint.get('decoder_hybrid_dim_feedforward', 512)
-            # Load window_size from checkpoint if available
-            self.window_size = checkpoint.get('window_size', 16)
-            # Load batch_size from checkpoint if available
-            self.batch_size = checkpoint.get('batch_size', 32)
-            # Load max_len from checkpoint for positional encoding (should equal window_size)
-            max_len = checkpoint.get('max_len', self.window_size)
-            # Default: no aug overrides from checkpoint unless config provided
-            self.aug_kwargs = {}
-            # Load causal and padding mode parameters from checkpoint
-            if 'aug_causal' in checkpoint:
-                self.aug_kwargs['causal'] = checkpoint.get('aug_causal', False)
-            if 'aug_pad_mode' in checkpoint:
-                self.aug_kwargs['pad_mode'] = checkpoint.get('aug_pad_mode', 'reflect')
-            # Load weights from checkpoint if available
-            self.contrastive_weight = checkpoint.get('contrastive_weight', 1.0)
-            self.reconstruction_weight = checkpoint.get('reconstruction_weight', 1.0)
-            # Load other training parameters from checkpoint
-            self.learning_rate = checkpoint.get('learning_rate', 1e-4)
-            self.weight_decay = checkpoint.get('weight_decay', 1e-5)
-            self.epsilon = checkpoint.get('epsilon', 1e-5)
-            self.mask_mode = checkpoint.get('mask_mode', 'time')
-            self.mask_ratio = checkpoint.get('mask_ratio', 0.2)
-            self.mask_seed = checkpoint.get('mask_seed', None)
-            self.device_name = checkpoint.get('device', 'cuda')
-            self.seed = checkpoint.get('seed', 42)
-            # Load additional training parameters from checkpoint
-            self.num_epochs = checkpoint.get('num_epochs', 100)
-            self.use_lr_scheduler = checkpoint.get('use_lr_scheduler', True)
-            self.scheduler_type = checkpoint.get('scheduler_type', 'cosine')
-            self.scheduler_params = checkpoint.get('scheduler_params', {})
-            self.use_wandb = checkpoint.get('use_wandb', True)
-            self.project_name = checkpoint.get('project_name', 'contrastive-learning')
-            self.experiment_name = checkpoint.get('experiment_name', None)
-            # Load dataset-specific parameters from checkpoint
-            self.dataset_name = checkpoint.get('dataset_name', None)
-            self.data_path = checkpoint.get('data_path', None)
-            print("Config file not found, using checkpoint defaults")
-            print(f"Using input_dim: {self.input_dim}")
-            print(f"Using window_size: {self.window_size}")
-            print(f"Using batch_size: {self.batch_size}")
-            print(f"Using decoder_type: {decoder_type}")
-            print(f"Using contrastive: {use_contrastive}")
-            print(f"Using learning_rate: {self.learning_rate}")
-            print(f"Using contrastive_weight: {self.contrastive_weight}")
-            print(f"Using reconstruction_weight: {self.reconstruction_weight}")
-            print(f"Using mask_mode: {self.mask_mode}")
-            print(f"Using mask_ratio: {self.mask_ratio}")
-            print(f"Using seed: {self.seed}")
-            # Print augmentation parameters
-            if 'causal' in self.aug_kwargs:
-                print(f"Using aug_causal: {self.aug_kwargs['causal']}")
-            if 'pad_mode' in self.aug_kwargs:
-                print(f"Using aug_pad_mode: {self.aug_kwargs['pad_mode']}")
+        # Load all parameters from checkpoint only
+        self.input_dim = checkpoint.get('input_dim', 2)
+        d_model = checkpoint.get('d_model', 256)
+        projection_dim = checkpoint.get('projection_dim', 128)
+        nhead = checkpoint.get('nhead', 8)
+        transformer_layers = checkpoint.get('transformer_layers', 6)
+        tcn_output_dim = checkpoint.get('tcn_output_dim', None)
+        tcn_kernel_size = checkpoint.get('tcn_kernel_size', 3)
+        tcn_num_layers = checkpoint.get('tcn_num_layers', 3)
+        dropout = checkpoint.get('dropout', 0.1)
+        temperature = checkpoint.get('temperature', 1.0)
+        combination_method = checkpoint.get('combination_method', 'concat')
+        use_contrastive = checkpoint.get('use_contrastive', True)
+        
+        # Decoder parameters (fallback to defaults if not in checkpoint)
+        decoder_type = checkpoint.get('decoder_type', 'custom_linear')
+        
+        # Load window_size from checkpoint if available
+        self.window_size = checkpoint.get('window_size', 16)
+        # Load batch_size from checkpoint if available
+        self.batch_size = checkpoint.get('batch_size', 32)
+        # Load max_len from checkpoint for positional encoding (should equal window_size)
+        max_len = checkpoint.get('max_len', self.window_size)
+        
+        # Load augmentation parameters from checkpoint
+        self.aug_kwargs = {}
+        
+        # Load weights from checkpoint if available
+        self.contrastive_weight = checkpoint.get('contrastive_weight', 1.0)
+        self.reconstruction_weight = checkpoint.get('reconstruction_weight', 1.0)
+        
+        # Load other training parameters from checkpoint
+        self.learning_rate = checkpoint.get('learning_rate', 1e-4)
+        self.weight_decay = checkpoint.get('weight_decay', 1e-5)
+        self.epsilon = checkpoint.get('epsilon', 1e-5)
+        self.mask_mode = checkpoint.get('mask_mode', 'time')
+        self.mask_ratio = checkpoint.get('mask_ratio', 0.2)
+        self.mask_seed = checkpoint.get('mask_seed', None)
+        self.device_name = checkpoint.get('device', 'cuda')
+        self.seed = checkpoint.get('seed', 42)
+        
+        # Load additional training parameters from checkpoint
+        self.use_lr_scheduler = checkpoint.get('use_lr_scheduler', True)
+        self.scheduler_type = checkpoint.get('scheduler_type', 'cosine')
+        self.scheduler_params = checkpoint.get('scheduler_params', {})
+        self.use_wandb = checkpoint.get('use_wandb', True)
+        self.project_name = checkpoint.get('project_name', 'contrastive-learning')
+        self.experiment_name = checkpoint.get('experiment_name', None)
+        
+        # Load dataset-specific parameters from checkpoint
+        self.dataset_name = checkpoint.get('dataset_name', None)
+        self.data_path = checkpoint.get('data_path', None)
+        
+        print("Loading parameters from checkpoint")
+        print(f"Using input_dim: {self.input_dim}")
+        print(f"Using window_size: {self.window_size}")
+        print(f"Using batch_size: {self.batch_size}")
+        print(f"Using decoder_type: {decoder_type}")
+        print(f"Using contrastive: {use_contrastive}")
+        print(f"Using learning_rate: {self.learning_rate}")
+        print(f"Using contrastive_weight: {self.contrastive_weight}")
+        print(f"Using reconstruction_weight: {self.reconstruction_weight}")
+        print(f"Using mask_mode: {self.mask_mode}")
+        print(f"Using mask_ratio: {self.mask_ratio}")
+        print(f"Using seed: {self.seed}")
         
         # Create model
         self.model = ContrastiveModel(
@@ -359,19 +239,6 @@ class ContrastiveInference:
             combination_method=combination_method,
             use_contrastive=use_contrastive,
             max_len=max_len,
-            # Decoder parameters
-            decoder_type=decoder_type,
-            decoder_hidden_dims=decoder_hidden_dims,
-            decoder_tcn_kernel_size=decoder_tcn_kernel_size,
-            decoder_tcn_num_layers=decoder_tcn_num_layers,
-            decoder_transformer_nhead=decoder_transformer_nhead,
-            decoder_transformer_num_layers=decoder_transformer_num_layers,
-            decoder_dim_feedforward=decoder_dim_feedforward,
-            decoder_hybrid_tcn_kernel_size=decoder_hybrid_tcn_kernel_size,
-            decoder_hybrid_tcn_num_layers=decoder_hybrid_tcn_num_layers,
-            decoder_hybrid_transformer_nhead=decoder_hybrid_transformer_nhead,
-            decoder_hybrid_transformer_num_layers=decoder_hybrid_transformer_num_layers,
-            decoder_hybrid_dim_feedforward=decoder_hybrid_dim_feedforward,
             augmentation_kwargs=self.aug_kwargs if hasattr(self, 'aug_kwargs') else None
         )
         

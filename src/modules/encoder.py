@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-import math
 
 
 class LearnablePositionalEncoding(nn.Module):
@@ -57,7 +56,8 @@ class TransformerEncoderBlock(nn.Module):
             nhead=nhead,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
-            batch_first=True
+            batch_first=True,
+            norm_first=True
         )
         self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=num_layers)
         

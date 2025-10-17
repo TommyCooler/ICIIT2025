@@ -6,21 +6,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
-
+import sys
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import wandb
 
-# Handle both direct execution and module execution
-try:
-    from .contrastive_model import ContrastiveModel, ContrastiveDataset
-    from ..utils.dataloader import create_dataloaders
-except ImportError:
-    # Fallback for direct execution - use absolute imports
-    import sys
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    from src.model.contrastive_model import ContrastiveModel, ContrastiveDataset
-    from src.utils.dataloader import create_dataloaders
+# Add project root to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+# Import custom modules
+from src.model.contrastive_model import ContrastiveModel, ContrastiveDataset
+from src.utils.dataloader import create_dataloaders
 
 
 class ContrastiveTrainer:
@@ -33,7 +29,6 @@ class ContrastiveTrainer:
                  weight_decay: float = 1e-5,
                  contrastive_weight: float = 1.0,
                  reconstruction_weight: float = 1.0,
-                 l1_weight: float = 0.01,
                  epsilon: float = 1e-5,
                  device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
                  save_dir: str = 'checkpoints',
@@ -43,9 +38,7 @@ class ContrastiveTrainer:
                  use_lr_scheduler: bool = False,
                  scheduler_type: str = 'cosine',
                  scheduler_params: Optional[Dict] = None,
-                 window_size: int = None,
-                 aug_causal: bool = False,
-                 aug_pad_mode: str = 'reflect'):
+                 window_size: int = None):
         """
         Args:
             model: Contrastive learning model
@@ -54,7 +47,6 @@ class ContrastiveTrainer:
             weight_decay: Weight decay for optimizer
             contrastive_weight: Weight for contrastive loss
             reconstruction_weight: Weight for reconstruction loss
-            l1_weight: Weight for L1 regularization in reconstruction loss
             epsilon: Small constant for numerical stability in contrastive loss
             device: Device to run training on
             save_dir: Directory to save checkpoints
@@ -65,8 +57,6 @@ class ContrastiveTrainer:
             scheduler_type: Type of scheduler ('cosine', 'step', 'exponential', 'plateau')
             scheduler_params: Additional parameters for scheduler
             window_size: Window size for training (also used as max_len for positional encoding)
-            aug_causal: Causal mode for augmentation modules
-            aug_pad_mode: Padding mode for augmentation Conv1d layers
         """
         # Force CUDA usage for training
         self.model = model.to('cuda')
@@ -76,13 +66,10 @@ class ContrastiveTrainer:
         self.use_wandb = use_wandb
         self.window_size = window_size
         self.max_len = window_size  # Set max_len equal to window_size for positional encoding
-        self.aug_causal = aug_causal
-        self.aug_pad_mode = aug_pad_mode
         
         # Loss weights
         self.contrastive_weight = contrastive_weight
         self.reconstruction_weight = reconstruction_weight
-        self.l1_weight = l1_weight
         self.epsilon = epsilon
         
         # Optimizer
@@ -230,7 +217,6 @@ class ContrastiveTrainer:
                 augmented_batch,
                 contrastive_weight=self.contrastive_weight,
                 reconstruction_weight=self.reconstruction_weight,
-                l1_weight=self.l1_weight,
                 epsilon=self.epsilon
             )
             
@@ -311,7 +297,7 @@ class ContrastiveTrainer:
             print(f"Train Reconstruction Loss: {train_losses['reconstruction_loss']:.4f}")
             
             # Save checkpoint only if loss is better than previous best
-            self.save_checkpoint(epoch, current_loss=train_losses['total_loss'])
+            self.save_checkpoint(current_loss=train_losses['total_loss'])
             
             # Print learning rate
             current_lr = self.get_current_lr()
@@ -342,7 +328,7 @@ class ContrastiveTrainer:
             'reconstruction_losses': self.reconstruction_losses
         }
     
-    def save_checkpoint(self, epoch: int, current_loss: float = None):
+    def save_checkpoint(self, current_loss: float = None):
         """Save model checkpoint only if loss is better than previous best"""
         # If current_loss is provided, check if it's better than best_loss
         should_save = False
@@ -361,7 +347,6 @@ class ContrastiveTrainer:
             return
         
         checkpoint = {
-            'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler is not None else None,
@@ -375,9 +360,6 @@ class ContrastiveTrainer:
             'window_size': getattr(self, 'window_size', None),
             # Add max_len for positional encoding compatibility (same as window_size)
             'max_len': getattr(self, 'max_len', getattr(self, 'window_size', 16)),
-            # Add augmentation parameters
-            'aug_causal': getattr(self, 'aug_causal', False),
-            'aug_pad_mode': getattr(self, 'aug_pad_mode', 'reflect')
         }
         
         # Save checkpoint with fixed filename (overwrite previous)
@@ -385,25 +367,6 @@ class ContrastiveTrainer:
         torch.save(checkpoint, checkpoint_path)
         print(f"Best checkpoint saved: {checkpoint_path} (loss: {self.best_loss:.4f})")
     
-    def load_checkpoint(self, checkpoint_path: str):
-        """Load model checkpoint"""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        
-        # Load scheduler if available
-        if checkpoint.get('scheduler_state_dict') is not None and self.scheduler is not None:
-            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        
-        self.train_losses = checkpoint.get('train_losses', [])
-        self.contrastive_losses = checkpoint.get('contrastive_losses', [])
-        self.reconstruction_losses = checkpoint.get('reconstruction_losses', [])
-        self.best_loss = checkpoint.get('best_loss', float('inf'))
-        
-        print(f"Checkpoint loaded from {checkpoint_path}")
-        print(f"Best loss from checkpoint: {self.best_loss:.4f}")
-        return checkpoint['epoch']
     
     def plot_training_history(self, save_path: Optional[str] = None):
         """Plot training history"""

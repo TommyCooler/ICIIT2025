@@ -1,30 +1,18 @@
-#!/usr/bin/env python3
-"""
-Main script for contrastive learning model training
-"""
-
 import argparse
-import json
-from typing import List, Optional
 import torch
 import numpy as np
 import os
 import sys
+from datetime import datetime
 
-# Add src to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# Handle both direct execution and module execution
-try:
-    from .contrastive_model import ContrastiveModel
-    from .train_contrastive import ContrastiveTrainer, create_contrastive_dataloaders
-except ImportError:
-    # Fallback for direct execution - use absolute imports
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    from src.model.contrastive_model import ContrastiveModel
-    from src.model.train_contrastive import ContrastiveTrainer, create_contrastive_dataloaders
+# Import custom modules
+from src.model.contrastive_model import ContrastiveModel
+from src.model.train_contrastive import ContrastiveTrainer, create_contrastive_dataloaders
+
 import setproctitle
-
 setproctitle.setproctitle("TamTC's train")
 
 
@@ -62,39 +50,13 @@ def parse_args():
                        help='Dropout rate')
     parser.add_argument('--temperature', type=float, default=1,
                        help='Temperature for InfoNCE loss')
-    parser.add_argument('--combination_method', type=str, default='stack',
+    parser.add_argument('--combination_method', type=str, default='concat',
                        choices=['concat', 'stack'],
                        help='Method for combining TCN and Transformer outputs')
     
-    # Decoder arguments
+    # Decoder arguments (simplified - only CustomLinear)
     parser.add_argument('--decoder_type', type=str, default='custom_linear',
-                       choices=['mlp', 'tcn', 'transformer', 'hybrid', 'custom_linear'],
-                       help='Type of decoder architecture')
-    parser.add_argument('--decoder_hidden_dims', type=str, default=None,
-                       help='Comma-separated hidden dimensions for MLP decoder (e.g., "256,128,64")')
-    # TCN decoder arguments
-    parser.add_argument('--decoder_tcn_kernel_size', type=int, default=3,
-                       help='Kernel size for TCN decoder')
-    parser.add_argument('--decoder_tcn_num_layers', type=int, default=6,
-                       help='Number of TCN layers for decoder')
-    # Transformer decoder arguments
-    parser.add_argument('--decoder_transformer_nhead', type=int, default=8,
-                       help='Number of attention heads for transformer decoder')
-    parser.add_argument('--decoder_transformer_num_layers', type=int, default=3,
-                       help='Number of transformer layers for decoder')
-    parser.add_argument('--decoder_dim_feedforward', type=int, default=512,
-                       help='Feedforward dimension for transformer decoder')
-    # Hybrid decoder arguments
-    parser.add_argument('--decoder_hybrid_tcn_kernel_size', type=int, default=3,
-                       help='Kernel size for TCN in hybrid decoder')
-    parser.add_argument('--decoder_hybrid_tcn_num_layers', type=int, default=2,
-                       help='Number of TCN layers in hybrid decoder')
-    parser.add_argument('--decoder_hybrid_transformer_nhead', type=int, default=8,
-                       help='Number of attention heads for transformer in hybrid decoder')
-    parser.add_argument('--decoder_hybrid_transformer_num_layers', type=int, default=2,
-                       help='Number of transformer layers in hybrid decoder')
-    parser.add_argument('--decoder_hybrid_dim_feedforward', type=int, default=512,
-                       help='Feedforward dimension for transformer in hybrid decoder')
+                       help='Decoder type (always custom_linear)')
 
     # Augmentation-specific overrides (distinct names to avoid confusion with encoder)
     parser.add_argument('--aug_nhead', type=int, default=2,
@@ -109,13 +71,6 @@ def parse_args():
                        help='Augmentation dropout (override; default: model dropout)')
     parser.add_argument('--aug_temperature', type=float, default=None,
                        help='Augmentation temperature (override; default: model temperature)')
-    # Causal and padding mode arguments
-    parser.add_argument('--aug_causal', action='store_true', default=False,
-                       help='Use causal (no future leakage) for augmentation modules')
-    parser.add_argument('--aug_non_causal', dest='aug_causal', action='store_false',
-                       help='Use non-causal (bidirectional) for augmentation modules')
-    parser.add_argument('--aug_pad_mode', type=str, default='reflect', choices=['reflect', 'replicate', 'zeros'],
-                       help='Padding mode for augmentation Conv1d layers')
     parser.add_argument('--use_contrastive', action='store_true', default=False,
                        help='Use contrastive learning branch')
     parser.add_argument('--no_contrastive', dest='use_contrastive', action='store_false',
@@ -136,8 +91,6 @@ def parse_args():
                        help='Weight for contrastive loss')
     parser.add_argument('--reconstruction_weight', type=float, default=1.0,
                        help='Weight for reconstruction loss')
-    parser.add_argument('--l1_weight', type=float, default=0.01,
-                       help='Weight for L1 regularization in reconstruction loss')
     parser.add_argument('--epsilon', type=float, default=1e-5,
                        help='Small constant for numerical stability in contrastive loss')
     # Masking options for training (augmented input masking)
@@ -176,12 +129,6 @@ def parse_args():
                        help='Number of worker processes for data loading')
     parser.add_argument('--save_dir', type=str, default=r'checkpoints',
                        help='Directory to save checkpoints')
-    parser.add_argument('--resume', type=str, default="latest",
-                       help='Path to checkpoint to resume from, or "latest" to resume from latest checkpoint')
-    parser.add_argument('--resume_epoch', type=int, default=None,
-                       help='Specific epoch to resume from (if not specified, resume from last epoch in checkpoint)')
-    parser.add_argument('--list_checkpoints', action='store_true',
-                       help='List available checkpoints in save directory')
     
     # Other arguments
     parser.add_argument('--seed', type=int, default=42,
@@ -207,34 +154,6 @@ def get_device(device_arg: str) -> str:
     return device_arg
 
 
-def list_checkpoints(save_dir: str) -> List[str]:
-    """List available checkpoints in save directory"""
-    if not os.path.exists(save_dir):
-        print(f"Save directory {save_dir} does not exist")
-        return []
-    
-    checkpoint_files = []
-    for file in os.listdir(save_dir):
-        if file.endswith('.pth') and 'checkpoint_epoch_' in file:
-            checkpoint_files.append(os.path.join(save_dir, file))
-    
-    checkpoint_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
-    
-    print(f"\nAvailable checkpoints in {save_dir}:")
-    for i, checkpoint in enumerate(checkpoint_files):
-        filename = os.path.basename(checkpoint)
-        epoch = filename.split('_')[-1].split('.')[0]
-        print(f"  {i+1}. {filename} (Epoch {epoch})")
-    
-    return checkpoint_files
-
-
-def find_latest_checkpoint(save_dir: str) -> Optional[str]:
-    """Find the latest checkpoint in save directory"""
-    checkpoints = list_checkpoints(save_dir)
-    if not checkpoints:
-        return None
-    return checkpoints[-1]
 
 
 def get_input_dim(dataset: str, data_path: str = None) -> int:
@@ -275,10 +194,6 @@ def main():
     """Main function"""
     args = parse_args()
     
-    # Handle list checkpoints
-    if args.list_checkpoints:
-        list_checkpoints(args.save_dir)
-        return 0
     
     # Set seed
     set_seed(args.seed)
@@ -308,9 +223,8 @@ def main():
     print("=" * 60)
     
     # Create save directory with timestamp to distinguish different training runs
-    from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_dir = os.path.join(args.save_dir, f"{args.dataset}_{timestamp}")
+    save_dir = os.path.join(args.save_dir, f"{args.dataset}_{args.dataset_name}_{timestamp}")
     os.makedirs(save_dir, exist_ok=True)
     print(f"Save directory: {save_dir}")
     
@@ -349,18 +263,8 @@ def main():
         except Exception as e:
             print(f"Warning: Could not detect input_dim from dataloader: {e}")
         
-        # Parse decoder hidden dimensions if provided
-        decoder_hidden_dims = None
-        if args.decoder_hidden_dims:
-            try:
-                decoder_hidden_dims = [int(x.strip()) for x in args.decoder_hidden_dims.split(',')]
-                print(f"Using decoder hidden dimensions: {decoder_hidden_dims}")
-            except ValueError:
-                print(f"Warning: Invalid decoder_hidden_dims format: {args.decoder_hidden_dims}. Using default.")
-                decoder_hidden_dims = None
-        
         # Create model
-        print(f"\nCreating model with {args.decoder_type} decoder...")
+        print(f"\nCreating model with CustomLinear decoder...")
         model = ContrastiveModel(
             input_dim=args.input_dim,
             d_model=args.d_model,
@@ -375,19 +279,6 @@ def main():
             combination_method=args.combination_method,
             use_contrastive=args.use_contrastive,
             max_len=args.window_size,
-            # Decoder parameters
-            decoder_type=args.decoder_type,
-            decoder_hidden_dims=decoder_hidden_dims,
-            decoder_tcn_kernel_size=args.decoder_tcn_kernel_size,
-            decoder_tcn_num_layers=args.decoder_tcn_num_layers,
-            decoder_transformer_nhead=args.decoder_transformer_nhead,
-            decoder_transformer_num_layers=args.decoder_transformer_num_layers,
-            decoder_dim_feedforward=args.decoder_dim_feedforward,
-            decoder_hybrid_tcn_kernel_size=args.decoder_hybrid_tcn_kernel_size,
-            decoder_hybrid_tcn_num_layers=args.decoder_hybrid_tcn_num_layers,
-            decoder_hybrid_transformer_nhead=args.decoder_hybrid_transformer_nhead,
-            decoder_hybrid_transformer_num_layers=args.decoder_hybrid_transformer_num_layers,
-            decoder_hybrid_dim_feedforward=args.decoder_hybrid_dim_feedforward,
             augmentation_kwargs={
                 # Only pass if provided; ContrastiveModel will fallback to model params
                 **({ 'nhead': args.aug_nhead } if args.aug_nhead is not None else {}),
@@ -396,9 +287,6 @@ def main():
                 'num_layers': args.aug_num_layers,
                 **({ 'dropout': args.aug_dropout } if args.aug_dropout is not None else {}),
                 **({ 'temperature': args.aug_temperature } if args.aug_temperature is not None else {}),
-                # Causal and padding mode parameters
-                'causal': args.aug_causal,
-                'pad_mode': args.aug_pad_mode,
             }
         )
         
@@ -413,7 +301,6 @@ def main():
             weight_decay=args.weight_decay,
             contrastive_weight=args.contrastive_weight,
             reconstruction_weight=args.reconstruction_weight,
-            l1_weight=args.l1_weight,
             epsilon=args.epsilon,
             device=device,
             save_dir=save_dir,
@@ -421,46 +308,25 @@ def main():
             project_name=args.project_name,
             experiment_name=args.experiment_name,
             window_size=args.window_size,
-            aug_causal=args.aug_causal,
-            aug_pad_mode=args.aug_pad_mode,
             use_lr_scheduler=args.use_lr_scheduler,
             scheduler_type=args.scheduler_type,
             scheduler_params=(json.loads(args.scheduler_params) if isinstance(args.scheduler_params, str) and args.scheduler_params else {})
         )
         
-        # Resume from checkpoint if specified
-        start_epoch = 0
-        if args.resume:
-            if args.resume == 'latest':
-                # Find latest checkpoint
-                latest_checkpoint = find_latest_checkpoint(save_dir)
-                if latest_checkpoint:
-                    print(f"\nResuming from latest checkpoint: {latest_checkpoint}")
-                    start_epoch = trainer.load_checkpoint(latest_checkpoint)
-                else:
-                    print(f"\nNo checkpoints found in {save_dir}, starting from scratch")
-            else:
-                print(f"\nResuming from checkpoint: {args.resume}")
-                start_epoch = trainer.load_checkpoint(args.resume)
-            
-            # Override start epoch if specified
-            if args.resume_epoch is not None:
-                print(f"Note: resume_epoch specified ({args.resume_epoch}) but will continue from checkpoint epoch ({start_epoch})")
-        
         # Train model
-        print(f"\nStarting training from epoch {start_epoch + 1}...")
+        print(f"\nStarting training...")
         trainer.train(
             num_epochs=args.num_epochs,
-            start_epoch=start_epoch
+            start_epoch=0
         )
         
         # Plot training history
         plot_path = os.path.join(save_dir, 'training_history.png')
         trainer.plot_training_history(plot_path)
         
-        # Save final model (force save regardless of loss)
+        # Save final model
         final_checkpoint_path = os.path.join(save_dir, 'final_model.pth')
-        trainer.save_checkpoint(args.num_epochs - 1, current_loss=None)
+        trainer.save_checkpoint(current_loss=None)
         print(f"\nFinal model saved to {final_checkpoint_path}")
         
         print("\nTraining completed successfully!")

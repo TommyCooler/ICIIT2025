@@ -3,20 +3,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import Tuple, Dict, Optional, List
+import sys
+import os
 
-# Handle both direct execution and module execution
-try:
-    from ..modules.encoder import Encoder
-    from ..modules.decoder import Decoder
-    from ..modules.augmentation import Augmentation
-except ImportError:
-    # Fallback for direct execution - use absolute imports
-    import sys
-    import os
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    from src.modules.encoder import Encoder
-    from src.modules.decoder import Decoder
-    from src.modules.augmentation import Augmentation
+# Add project root to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+# Import custom modules
+from src.modules.encoder import Encoder
+from src.modules.decoder import Decoder
+from src.modules.augmentation import Augmentation
 
 
 class MLPProjection(nn.Module):
@@ -61,23 +57,7 @@ class ContrastiveModel(nn.Module):
                  combination_method: str = 'concat',
                  use_contrastive: bool = True,
                  augmentation_kwargs: Optional[Dict] = None,
-                 max_len: int = 5000,
-                 # Decoder parameters
-                 decoder_type: str = 'mlp',
-                 decoder_hidden_dims: Optional[List[int]] = None,
-                 # TCN decoder parameters
-                 decoder_tcn_kernel_size: int = 3,
-                 decoder_tcn_num_layers: int = 3,
-                 # Transformer decoder parameters
-                 decoder_transformer_nhead: int = 8,
-                 decoder_transformer_num_layers: int = 3,
-                 decoder_dim_feedforward: int = 512,
-                 # Hybrid decoder parameters
-                 decoder_hybrid_tcn_kernel_size: int = 3,
-                 decoder_hybrid_tcn_num_layers: int = 2,
-                 decoder_hybrid_transformer_nhead: int = 8,
-                 decoder_hybrid_transformer_num_layers: int = 2,
-                 decoder_hybrid_dim_feedforward: int = 512):
+                 max_len: int = 5000):
         """
         Args:
             input_dim: Input dimension (number of features)
@@ -92,23 +72,8 @@ class ContrastiveModel(nn.Module):
             temperature: Temperature for InfoNCE loss
             combination_method: 'concat' or 'stack' for encoder combination
             use_contrastive: Whether to use contrastive learning branch
+            augmentation_kwargs: Optional augmentation-specific parameters
             max_len: Maximum sequence length for positional encoding
-            # Decoder parameters
-            decoder_type: Type of decoder ('mlp', 'tcn', 'transformer', 'hybrid')
-            decoder_hidden_dims: Hidden dimensions for MLP decoder
-            # TCN decoder parameters
-            decoder_tcn_kernel_size: Kernel size for TCN decoder
-            decoder_tcn_num_layers: Number of TCN layers for decoder
-            # Transformer decoder parameters
-            decoder_transformer_nhead: Number of attention heads for transformer decoder
-            decoder_transformer_num_layers: Number of transformer layers for decoder
-            decoder_dim_feedforward: Feedforward dimension for transformer decoder
-            # Hybrid decoder parameters
-            decoder_hybrid_tcn_kernel_size: Kernel size for TCN in hybrid decoder
-            decoder_hybrid_tcn_num_layers: Number of TCN layers in hybrid decoder
-            decoder_hybrid_transformer_nhead: Number of attention heads for transformer in hybrid decoder
-            decoder_hybrid_transformer_num_layers: Number of transformer layers in hybrid decoder
-            decoder_hybrid_dim_feedforward: Feedforward dimension for transformer in hybrid decoder
         """
         super(ContrastiveModel, self).__init__()
         
@@ -143,26 +108,11 @@ class ContrastiveModel(nn.Module):
                 dropout=dropout
             )
         
-        # Decoder for reconstruction with configurable architecture
+        # Decoder for reconstruction using CustomLinear
         self.decoder = Decoder(
             d_model=d_model,
             output_dim=input_dim,
-            decoder_type=decoder_type,
-            hidden_dims=decoder_hidden_dims if decoder_hidden_dims is not None else [d_model, d_model // 2, d_model // 4],
-            dropout=dropout,
-            # TCN decoder parameters
-            tcn_kernel_size=decoder_tcn_kernel_size,
-            tcn_num_layers=decoder_tcn_num_layers,
-            # Transformer decoder parameters
-            transformer_nhead=decoder_transformer_nhead,
-            transformer_num_layers=decoder_transformer_num_layers,
-            dim_feedforward=decoder_dim_feedforward,
-            # Hybrid decoder parameters
-            hybrid_tcn_kernel_size=decoder_hybrid_tcn_kernel_size,
-            hybrid_tcn_num_layers=decoder_hybrid_tcn_num_layers,
-            hybrid_transformer_nhead=decoder_hybrid_transformer_nhead,
-            hybrid_transformer_num_layers=decoder_hybrid_transformer_num_layers,
-            hybrid_dim_feedforward=decoder_hybrid_dim_feedforward
+            dropout=dropout
         )
         
         # Augmentation module for data augmentation
@@ -178,11 +128,6 @@ class ContrastiveModel(nn.Module):
         if 'num_layers' not in aug_kwargs:
             # Default augmentation transformer num layers = 1 unless overridden
             aug_kwargs['num_layers'] = 1
-        # Default causal and padding mode if not provided
-        if 'causal' not in aug_kwargs:
-            aug_kwargs['causal'] = True  # Default to causal (no future leakage)
-        if 'pad_mode' not in aug_kwargs:
-            aug_kwargs['pad_mode'] = 'reflect'  # Default padding mode
         
         self.augmentation = Augmentation(
             input_dim=input_dim,
@@ -322,29 +267,25 @@ class ContrastiveModel(nn.Module):
     
     def compute_reconstruction_loss(self, 
                                   original_data: torch.Tensor, 
-                                  reconstructed_data: torch.Tensor,
-                                  l1_weight: float = 0.01) -> torch.Tensor:
+                                  reconstructed_data: torch.Tensor) -> torch.Tensor:
         """
-        Compute reconstruction loss (MSE + L1 regularization)
+        Compute reconstruction loss (MSE only)
         
         Args:
             original_data: Original data tensor
             reconstructed_data: Reconstructed data tensor
-            l1_weight: Weight for L1 regularization
         
         Returns:
             Reconstruction loss
         """
         mse_loss = F.mse_loss(reconstructed_data, original_data)
-        l1_loss = F.l1_loss(reconstructed_data, original_data)
-        return mse_loss + l1_weight * l1_loss
+        return mse_loss
     
     def compute_total_loss(self, 
                           original_data: torch.Tensor, 
                           augmented_data: torch.Tensor,
                           contrastive_weight: float = 1.0,
                           reconstruction_weight: float = 1.0,
-                          l1_weight: float = 0.01,
                           labels: Optional[torch.Tensor] = None,
                           epsilon: float = 1e-5) -> Dict[str, torch.Tensor]:
         """
@@ -355,7 +296,6 @@ class ContrastiveModel(nn.Module):
             augmented_data: Augmented data tensor
             contrastive_weight: Weight for contrastive loss
             reconstruction_weight: Weight for reconstruction loss
-            l1_weight: Weight for L1 regularization in reconstruction loss
             labels: Optional labels for supervised contrastive learning
             epsilon: Small constant for numerical stability in contrastive loss
         
@@ -379,8 +319,7 @@ class ContrastiveModel(nn.Module):
         # Compute reconstruction loss
         reconstruction_loss = self.compute_reconstruction_loss(
             original_data,
-            outputs['reconstructed'],
-            l1_weight
+            outputs['reconstructed']
         )
         
         # Total loss

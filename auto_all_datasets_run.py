@@ -134,34 +134,6 @@ def validate_dataset_paths(datasets_to_validate=None):
         print(f"\n✅ All dataset paths are valid!")
         return True
 
-def find_latest_checkpoint(dataset_type):
-    """Find the latest checkpoint for a dataset type"""
-    checkpoints_dir = os.path.join(BASE, "checkpoints")
-    if not os.path.exists(checkpoints_dir):
-        return None
-    
-    # Look for timestamped directories: {dataset}_{YYYYMMDD_HHMMSS}
-    import re
-    pattern = f"^{dataset_type}_\\d{{8}}_\\d{{6}}$"
-    matching_dirs = []
-    
-    for item in os.listdir(checkpoints_dir):
-        if os.path.isdir(os.path.join(checkpoints_dir, item)) and re.match(pattern, item):
-            matching_dirs.append(item)
-    
-    if not matching_dirs:
-        return None
-    
-    # Sort by timestamp (newest first)
-    matching_dirs.sort(reverse=True)
-    latest_dir = matching_dirs[0]
-    
-    # Check if best_model.pth exists
-    model_path = os.path.join(checkpoints_dir, latest_dir, "best_model.pth")
-    if os.path.exists(model_path):
-        return model_path
-    
-    return None
 
 def run_command(cmd, description=""):
     """Run a command inheriting the console to preserve tqdm/wandb live rendering"""
@@ -312,27 +284,49 @@ def process_dataset(dataset_type, config):
             print(f"❌ Training failed for {file_info['name']}, skipping...")
             continue
         
-        # 2. Find latest checkpoint and run inference
-        latest_checkpoint = find_latest_checkpoint(dataset_type)
-        if latest_checkpoint:
-            print(f"🔍 Found latest checkpoint: {latest_checkpoint}")
+        # 2. Run inference with the latest checkpoint
+        # Find the checkpoint directory for this dataset
+        checkpoints_dir = os.path.join(BASE, "checkpoints")
+        if os.path.exists(checkpoints_dir):
+            # Look for timestamped directories: {dataset}_{YYYYMMDD_HHMMSS}
+            import re
+            pattern = f"^{dataset_type}_\\d{{8}}_\\d{{6}}$"
+            matching_dirs = []
             
-            # Run inference with the latest checkpoint
-            infer_cmd = (
-                f"python {os.path.join(BASE, 'src', 'inference', 'inference.py')} "
-                f"--dataset {dataset_type} "
-                f"--data_path {config['data_path']} "
-                f"--model_path {latest_checkpoint} "
-                f"--dataset_name {file_info['name']} "
-                f"--save_excel "
-                f"--save_plot"
-            )
+            for item in os.listdir(checkpoints_dir):
+                if os.path.isdir(os.path.join(checkpoints_dir, item)) and re.match(pattern, item):
+                    matching_dirs.append(item)
             
-            if not run_command(infer_cmd, f"Inference {file_info['name']}"):
-                print(f"❌ Inference failed for {file_info['name']}")
-                continue
+            if matching_dirs:
+                # Sort by timestamp (newest first)
+                matching_dirs.sort(reverse=True)
+                latest_dir = matching_dirs[0]
+                
+                # Check if best_model.pth exists
+                model_path = os.path.join(checkpoints_dir, latest_dir, "best_model.pth")
+                if os.path.exists(model_path):
+                    print(f"🔍 Found latest checkpoint: {model_path}")
+                    
+                    # Run inference with the latest checkpoint
+                    infer_cmd = (
+                        f"python {os.path.join(BASE, 'src', 'inference', 'inference.py')} "
+                        f"--dataset {dataset_type} "
+                        f"--data_path {config['data_path']} "
+                        f"--model_path {model_path} "
+                        f"--dataset_name {file_info['name']} "
+                        f"--save_excel "
+                        f"--save_plot"
+                    )
+                    
+                    if not run_command(infer_cmd, f"Inference {file_info['name']}"):
+                        print(f"❌ Inference failed for {file_info['name']}")
+                        continue
+                else:
+                    print(f"⚠️  No best_model.pth found in {latest_dir}, skipping inference...")
+            else:
+                print(f"⚠️  No timestamped checkpoints found for {dataset_type}, skipping inference...")
         else:
-            print(f"⚠️  No checkpoint found for {dataset_type}, skipping inference...")
+            print(f"⚠️  No checkpoints directory found, skipping inference...")
         
         success_count += 1
         print(f"✅ Successfully processed {file_info['name']}")
@@ -377,15 +371,37 @@ def run_inference_only():
             continue
         
         config = DATASET_CONFIGS[dataset_type]
-        latest_checkpoint = find_latest_checkpoint(dataset_type)
         
-        if not latest_checkpoint:
+        # Find the checkpoint directory for this dataset
+        checkpoints_dir = os.path.join(BASE, "checkpoints")
+        model_path = None
+        if os.path.exists(checkpoints_dir):
+            # Look for timestamped directories: {dataset}_{YYYYMMDD_HHMMSS}
+            import re
+            pattern = f"^{dataset_type}_\\d{{8}}_\\d{{6}}$"
+            matching_dirs = []
+            
+            for item in os.listdir(checkpoints_dir):
+                if os.path.isdir(os.path.join(checkpoints_dir, item)) and re.match(pattern, item):
+                    matching_dirs.append(item)
+            
+            if matching_dirs:
+                # Sort by timestamp (newest first)
+                matching_dirs.sort(reverse=True)
+                latest_dir = matching_dirs[0]
+                
+                # Check if best_model.pth exists
+                model_path = os.path.join(checkpoints_dir, latest_dir, "best_model.pth")
+                if not os.path.exists(model_path):
+                    model_path = None
+        
+        if not model_path:
             print(f"⚠️  No valid checkpoint found for {dataset_type}")
             continue
         
         print(f"\n{'='*60}")
         print(f"RUNNING INFERENCE FOR: {dataset_type.upper()}")
-        print(f"Checkpoint: {latest_checkpoint}")
+        print(f"Checkpoint: {model_path}")
         print(f"{'='*60}")
         
         # Get files to process
@@ -406,7 +422,7 @@ def run_inference_only():
                 f"python {os.path.join(BASE, 'src', 'inference', 'inference.py')} "
                 f"--dataset {dataset_type} "
                 f"--data_path {config['data_path']} "
-                f"--model_path {latest_checkpoint} "
+                f"--model_path {model_path} "
                 f"--dataset_name {file_info['name']} "
                 f"--save_excel "
                 f"--save_plot"
