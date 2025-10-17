@@ -57,7 +57,7 @@ class ContrastiveModel(nn.Module):
                  combination_method: str = 'concat',
                  use_contrastive: bool = True,
                  augmentation_kwargs: Optional[Dict] = None,
-                 max_len: int = 5000):
+                 window_size: int = 5000):
         """
         Args:
             input_dim: Input dimension (number of features)
@@ -73,15 +73,24 @@ class ContrastiveModel(nn.Module):
             combination_method: 'concat' or 'stack' for encoder combination
             use_contrastive: Whether to use contrastive learning branch
             augmentation_kwargs: Optional augmentation-specific parameters
-            max_len: Maximum sequence length for positional encoding
+            window_size: Window size for positional encoding
         """
         super(ContrastiveModel, self).__init__()
         
+        # Store all parameters for checkpoint saving
         self.input_dim = input_dim
         self.d_model = d_model
         self.projection_dim = projection_dim
+        self.nhead = nhead
+        self.transformer_layers = transformer_layers
+        self.tcn_output_dim = tcn_output_dim
+        self.tcn_kernel_size = tcn_kernel_size
+        self.tcn_num_layers = tcn_num_layers
+        self.dropout = dropout
         self.temperature = temperature
+        self.combination_method = combination_method
         self.use_contrastive = use_contrastive
+        self.window_size = window_size
         
         # Encoder for both original and augmented data
         self.encoder = Encoder(
@@ -95,7 +104,7 @@ class ContrastiveModel(nn.Module):
             tcn_num_layers=tcn_num_layers,
             dropout=dropout,
             combination_method=combination_method,
-            max_len=max_len
+            window_size=window_size
         )
         
         # MLP for contrastive learning projection
@@ -134,7 +143,7 @@ class ContrastiveModel(nn.Module):
             output_dim=input_dim,
             dropout=aug_dropout,
             temperature=aug_temperature,
-            max_len=max_len,
+            window_size=window_size,
             **aug_kwargs
         )
         

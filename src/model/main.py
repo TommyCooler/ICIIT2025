@@ -278,7 +278,7 @@ def main():
             temperature=args.temperature,
             combination_method=args.combination_method,
             use_contrastive=args.use_contrastive,
-            max_len=args.window_size,
+            window_size=args.window_size,
             augmentation_kwargs={
                 # Only pass if provided; ContrastiveModel will fallback to model params
                 **({ 'nhead': args.aug_nhead } if args.aug_nhead is not None else {}),

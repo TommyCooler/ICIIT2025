@@ -6,18 +6,18 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class LearnablePositionalEncoding(nn.Module):
     """Learnable positional encoding for Transformer"""
-    def __init__(self, d_model: int, max_len: int = 5000):
+    def __init__(self, d_model: int, window_size: int = 5000):
         """
         Args:
             d_model: Model dimension
-            max_len: Maximum sequence length
+            window_size: Window size for positional encoding
         """
         super(LearnablePositionalEncoding, self).__init__()
         self.d_model = d_model
-        self.max_len = max_len
+        self.window_size = window_size
         
         # Learnable positional embeddings
-        self.pos_embedding = nn.Parameter(torch.zeros(max_len, d_model))
+        self.pos_embedding = nn.Parameter(torch.zeros(window_size, d_model))
         
         # Initialize with small random values
         nn.init.normal_(self.pos_embedding, mean=0.0, std=0.1)
@@ -31,9 +31,9 @@ class LearnablePositionalEncoding(nn.Module):
         """
         batch_size, seq_len, d_model = x.shape
         
-        # Ensure we don't exceed max_len
-        if seq_len > self.max_len:
-            raise ValueError(f"Sequence length {seq_len} exceeds maximum length {self.max_len}")
+        # Ensure we don't exceed window_size
+        if seq_len > self.window_size:
+            raise ValueError(f"Sequence length {seq_len} exceeds window size {self.window_size}")
         
         # Get positional embeddings for current sequence length
         pos_emb = self.pos_embedding[:seq_len, :]  # (seq_len, d_model)
@@ -44,11 +44,11 @@ class LearnablePositionalEncoding(nn.Module):
 
 class TransformerEncoderBlock(nn.Module):
     """Transformer Encoder Block with learnable positional encoding"""
-    def __init__(self, d_model, nhead, dim_feedforward, num_layers, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, nhead, dim_feedforward, num_layers, dropout=0.1, window_size=5000):
         super(TransformerEncoderBlock, self).__init__()
         
         # Learnable positional encoding
-        self.pos_encoding = LearnablePositionalEncoding(d_model, max_len)
+        self.pos_encoding = LearnablePositionalEncoding(d_model, window_size)
         
         # Transformer encoder layers
         encoder_layer = TransformerEncoderLayer(
@@ -145,7 +145,7 @@ class Encoder(nn.Module):
                  tcn_num_layers=4,
                  dropout=0.1,
                  combination_method='concat',
-                 max_len=5000):
+                 window_size=5000):
         """
         Args:
             input_dim: Input dimension
@@ -158,7 +158,7 @@ class Encoder(nn.Module):
             tcn_num_layers: Number of TCN layers
             dropout: Dropout rate
             combination_method: 'concat' or 'stack' for combining outputs
-            max_len: Maximum sequence length for positional encoding
+            window_size: Window size for positional encoding
         """
         super(Encoder, self).__init__()
         
@@ -172,7 +172,7 @@ class Encoder(nn.Module):
             dim_feedforward=dim_feedforward,
             num_layers=transformer_layers,
             dropout=dropout,
-            max_len=max_len
+            window_size=window_size
         )
         
         # TCN Block

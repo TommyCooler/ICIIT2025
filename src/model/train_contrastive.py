@@ -56,7 +56,7 @@ class ContrastiveTrainer:
             use_lr_scheduler: Whether to use learning rate scheduler
             scheduler_type: Type of scheduler ('cosine', 'step', 'exponential', 'plateau')
             scheduler_params: Additional parameters for scheduler
-            window_size: Window size for training (also used as max_len for positional encoding)
+            window_size: Window size for training
         """
         # Force CUDA usage for training
         self.model = model.to('cuda')
@@ -65,7 +65,6 @@ class ContrastiveTrainer:
         self.save_dir = save_dir
         self.use_wandb = use_wandb
         self.window_size = window_size
-        self.max_len = window_size  # Set max_len equal to window_size for positional encoding
         
         # Loss weights
         self.contrastive_weight = contrastive_weight
@@ -358,8 +357,19 @@ class ContrastiveTrainer:
             'best_loss': self.best_loss,
             # Add window_size for inference compatibility
             'window_size': getattr(self, 'window_size', None),
-            # Add max_len for positional encoding compatibility (same as window_size)
-            'max_len': getattr(self, 'max_len', getattr(self, 'window_size', 16)),
+            # Add model architecture parameters for inference
+            'input_dim': self.model.input_dim,
+            'd_model': self.model.d_model,
+            'projection_dim': self.model.projection_dim,
+            'nhead': self.model.nhead,
+            'transformer_layers': self.model.transformer_layers,
+            'tcn_output_dim': self.model.tcn_output_dim,
+            'tcn_kernel_size': self.model.tcn_kernel_size,
+            'tcn_num_layers': self.model.tcn_num_layers,
+            'dropout': self.model.dropout,
+            'temperature': self.model.temperature,
+            'combination_method': self.model.combination_method,
+            'use_contrastive': self.model.use_contrastive,
         }
         
         # Save checkpoint with fixed filename (overwrite previous)

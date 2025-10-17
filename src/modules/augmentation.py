@@ -14,18 +14,18 @@ from src.utils.connv1d import TemporalConv1d
 
 class LearnablePositionalEncoding(nn.Module):
     """Learnable positional encoding for Transformer"""
-    def __init__(self, d_model: int, max_len: int = 5000):
+    def __init__(self, d_model: int, window_size: int = 5000):
         """
         Args:
             d_model: Model dimension
-            max_len: Maximum sequence length
+            window_size: Window size for positional encoding
         """
         super(LearnablePositionalEncoding, self).__init__()
         self.d_model = d_model
-        self.max_len = max_len
+        self.window_size = window_size
         
         # Learnable positional embeddings
-        self.pos_embedding = nn.Parameter(torch.zeros(max_len, d_model))
+        self.pos_embedding = nn.Parameter(torch.zeros(window_size, d_model))
         
         # Initialize with small random values
         # LearnablePositionalEncoding.__init__
@@ -41,9 +41,9 @@ class LearnablePositionalEncoding(nn.Module):
         """
         _, seq_len, _ = x.shape
         
-        # Ensure we don't exceed max_len
-        if seq_len > self.max_len:
-            raise ValueError(f"Sequence length {seq_len} exceeds maximum length {self.max_len}")
+        # Ensure we don't exceed window_size
+        if seq_len > self.window_size:
+            raise ValueError(f"Sequence length {seq_len} exceeds window size {self.window_size}")
         
         # Get positional embeddings for current sequence length
         pos_emb = self.pos_embedding[:seq_len, :]  # (seq_len, d_model)
@@ -204,7 +204,7 @@ class LSTMAugmentation(nn.Module):
 
 
 class EncoderTransformerAugmentation(nn.Module):
-    def __init__(self, input_dim, output_dim, nhead=8, num_layers=1, dropout=0.1, max_len=5000):
+    def __init__(self, input_dim, output_dim, nhead=8, num_layers=1, dropout=0.1, window_size=5000):
         super().__init__()
         if input_dim < nhead:
             nhead = max(1, input_dim)
@@ -213,7 +213,7 @@ class EncoderTransformerAugmentation(nn.Module):
             output_dim = ((output_dim + nhead - 1) // nhead) * nhead
 
         self.input_projection = nn.Linear(input_dim, output_dim)
-        self.pos_encoding = LearnablePositionalEncoding(output_dim, max_len)
+        self.pos_encoding = LearnablePositionalEncoding(output_dim, window_size)
 
         layer = TransformerEncoderLayer(
             d_model=output_dim, nhead=nhead,
@@ -250,7 +250,7 @@ class Augmentation(nn.Module):
     - smd: 38 features (multivariate sensors)
     - ucr: 1 feature (univariate time series)
     """
-    def __init__(self, input_dim, output_dim, dropout=0.1, temperature=1.0, max_len=5000, **kwargs):
+    def __init__(self, input_dim, output_dim, dropout=0.1, temperature=1.0, window_size=5000, **kwargs):
         super(Augmentation, self).__init__()
         
         # Get nhead for transformer - adjust for small input dimensions
@@ -288,7 +288,7 @@ class Augmentation(nn.Module):
             nhead=nhead,
             num_layers=kwargs.get('num_layers', 1),
             dropout=dropout,
-            max_len=max_len
+            window_size=window_size
         )
         
         # Add projection layer if transformer output dim is different
